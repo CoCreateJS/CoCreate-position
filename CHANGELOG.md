@@ -1,3 +1,10 @@
+## [1.10.4](https://github.com/CoCreate-app/CoCreate-position/compare/v1.10.3...v1.10.4) (2026-02-04)
+
+
+### Bug Fixes
+
+* update worklow ([e05f353](https://github.com/CoCreate-app/CoCreate-position/commit/e05f353b0164caad4930a8e9586218ac5d8f355a))
+
 ## [1.10.3](https://github.com/CoCreate-app/CoCreate-position/compare/v1.10.2...v1.10.3) (2025-05-01)
 
 
