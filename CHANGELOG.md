@@ -1,3 +1,12 @@
+## [1.10.5](https://github.com/CoCreate-app/CoCreate-position/compare/v1.10.4...v1.10.5) (2026-07-11)
+
+
+### Bug Fixes
+
+* bump package versions ([78dea7a](https://github.com/CoCreate-app/CoCreate-position/commit/78dea7aab8d27be6b36a3decbf4f39b6f68eedfe))
+* removed post install and add add packages to apprved list ([74dd682](https://github.com/CoCreate-app/CoCreate-position/commit/74dd6823b339870dd017d9fbbe4e2ba4bcd7ea20))
+* semantic version handling ([60970a0](https://github.com/CoCreate-app/CoCreate-position/commit/60970a0fcbfc7c401c41234ecca8b15f11a57a03))
+
 ## [1.10.4](https://github.com/CoCreate-app/CoCreate-position/compare/v1.10.3...v1.10.4) (2026-02-04)
 
 
