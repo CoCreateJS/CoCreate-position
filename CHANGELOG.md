@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/CoCreate-app/CoCreate-position/compare/v1.10.5...v1.11.0) (2026-07-17)
+
+
+### Features
+
+* update automated workflow and release configuration for improved semantic release handling ([cafe12d](https://github.com/CoCreate-app/CoCreate-position/commit/cafe12d271bb645e2b7b064c29dfcc2bbf131503))
+
 ## [1.10.5](https://github.com/CoCreate-app/CoCreate-position/compare/v1.10.4...v1.10.5) (2026-07-11)
 
 
