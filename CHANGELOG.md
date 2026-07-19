@@ -1,3 +1,10 @@
+## [1.11.2](https://github.com/CoCreate-app/CoCreate-position/compare/v1.11.1...v1.11.2) (2026-07-19)
+
+
+### Bug Fixes
+
+* set default branch to main ([5280423](https://github.com/CoCreate-app/CoCreate-position/commit/5280423613f5269ab2637283f8874a9ea6bbff8c))
+
 ## [1.11.1](https://github.com/CoCreate-app/CoCreate-position/compare/v1.11.0...v1.11.1) (2026-07-17)
 
 
