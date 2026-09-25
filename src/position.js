@@ -37,6 +37,18 @@ function position(el, container, options) {
     this._selectElement()
 }
 
+const INTERACTIVE_SELECTOR = [
+    "a",
+    "button",
+    "input",
+    "select",
+    "textarea",
+    "label",
+    "summary",
+    "[contenteditable]:not([contenteditable='false'])",
+    "[moveable-ignore]"
+].join(",");
+
 position.prototype = {
     constructor: position,
 
@@ -58,38 +70,60 @@ position.prototype = {
         if (this.dragHandle)
             positionableEl = this.dragHandle
 
+        this._documentMouseMove = function (e) {
+            if (!self.clickedInfo?.isMoving) return;
+            e.preventDefault();
+            self._onMove(e);
+        };
+        this._documentMouseUp = function (e) {
+            if (!self.clickedInfo?.isMoving) return;
+            self._onUp(e);
+            e.preventDefault();
+        };
+        this._documentTouchMove = function (e) {
+            if (!self.clickedInfo?.isMoving || !e.touches.length) return;
+            e.preventDefault();
+            self._onMove(e.touches[0]);
+        };
+        this._documentTouchEnd = function (e) {
+            if (!self.clickedInfo?.isMoving) return;
+            self._onUp(e.changedTouches?.[0]);
+        };
+        this._documentBlur = function () {
+            self._onUp();
+        };
+
         positionableEl.addEventListener('touchstart', function (e) {
             self._selectElement(e.detail.element)
             self._onDown(e.touches[0]);
+            if (self.clickedInfo?.isMoving) self._bindDocumentDrag();
         })
 
         positionableEl.addEventListener('mousedown', function (e) {
             self._selectElement(e.detail.element)
             self._onDown(e);
+            if (self.clickedInfo?.isMoving) self._bindDocumentDrag();
         })
 
-        positionableEl.addEventListener('mousemove', function (e) {
-            if (self.clickedInfo && self.clickedInfo.isMoving) {
-                e.preventDefault();
-                self._onMove(e);
-            }
-        });
+    },
 
-        positionableEl.addEventListener('mouseup', function (e) {
-            if (self.clickedInfo && self.clickedInfo.isMoving) {
-                self._onUp(e);
-                e.preventDefault();
-            }
-        }, true);
+    _bindDocumentDrag: function () {
+        this._unbindDocumentDrag();
+        document.addEventListener('mousemove', this._documentMouseMove);
+        document.addEventListener('mouseup', this._documentMouseUp, true);
+        document.addEventListener('touchmove', this._documentTouchMove, { passive: false });
+        document.addEventListener('touchend', this._documentTouchEnd, true);
+        document.addEventListener('touchcancel', this._documentTouchEnd, true);
+        window.addEventListener('blur', this._documentBlur);
+    },
 
-        positionableEl.addEventListener('touchmove', function (e) {
-            self._onMove(e.touches[0]);
-        }, { passive: false });
-
-        positionableEl.addEventListener('touchend', function (e) {
-            self._onUp(e.touches[0]);
-        }, { passive: false });
-
+    _unbindDocumentDrag: function () {
+        document.removeEventListener('mousemove', this._documentMouseMove);
+        document.removeEventListener('mouseup', this._documentMouseUp, true);
+        document.removeEventListener('touchmove', this._documentTouchMove);
+        document.removeEventListener('touchend', this._documentTouchEnd, true);
+        document.removeEventListener('touchcancel', this._documentTouchEnd, true);
+        window.removeEventListener('blur', this._documentBlur);
     },
 
     _isMovable() {
@@ -99,7 +133,105 @@ position.prototype = {
         return this.point.x > 0 && this.point.x < width && this.point.y > 0 && this.point.y < this.dragAreaHeight;
     },
 
+    place: function (anchor = this.el, options = {}) {
+        if (!anchor?.getBoundingClientRect) return;
+
+        const placement = options.placement ||
+            anchor.getAttribute("position-placement") ||
+            this.el.getAttribute("position-placement") ||
+            "bottom-start";
+        const offset = Number(options.offset ??
+            anchor.getAttribute("position-offset") ??
+            this.el.getAttribute("position-offset") ?? 8);
+        const padding = Number(options.padding ??
+            anchor.getAttribute("position-padding") ??
+            this.el.getAttribute("position-padding") ?? 8);
+        const collision = (options.collision ||
+            anchor.getAttribute("position-collision") ||
+            this.el.getAttribute("position-collision") ||
+            "flip shift").split(/[\s,]+/);
+
+        const anchorRect = anchor.getBoundingClientRect();
+        const elementRect = this.el.getBoundingClientRect();
+        const parentRect = this.container.getBoundingClientRect();
+        const isFixed = getComputedStyle(this.el).position === "fixed";
+        const boundary = isFixed
+            ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
+            : parentRect;
+        let [side, align = "center"] = placement.split("-");
+
+        const getCoordinates = (currentSide) => {
+            let left;
+            let top;
+            if (currentSide === "top" || currentSide === "bottom") {
+                top = currentSide === "top"
+                    ? anchorRect.top - elementRect.height - offset
+                    : anchorRect.bottom + offset;
+                left = align === "start"
+                    ? anchorRect.left
+                    : align === "end"
+                        ? anchorRect.right - elementRect.width
+                        : anchorRect.left + (anchorRect.width - elementRect.width) / 2;
+            } else {
+                left = currentSide === "left"
+                    ? anchorRect.left - elementRect.width - offset
+                    : anchorRect.right + offset;
+                top = align === "start"
+                    ? anchorRect.top
+                    : align === "end"
+                        ? anchorRect.bottom - elementRect.height
+                        : anchorRect.top + (anchorRect.height - elementRect.height) / 2;
+            }
+            return { left, top };
+        };
+
+        let coordinates = getCoordinates(side);
+        if (collision.includes("flip")) {
+            const opposite = { top: "bottom", bottom: "top", left: "right", right: "left" };
+            const overflows =
+                (side === "top" && coordinates.top < boundary.top + padding) ||
+                (side === "bottom" && coordinates.top + elementRect.height > boundary.bottom - padding) ||
+                (side === "left" && coordinates.left < boundary.left + padding) ||
+                (side === "right" && coordinates.left + elementRect.width > boundary.right - padding);
+            if (overflows) {
+                side = opposite[side] || side;
+                coordinates = getCoordinates(side);
+            }
+        }
+
+        if (collision.includes("shift")) {
+            coordinates.left = Math.min(
+                Math.max(coordinates.left, boundary.left + padding),
+                Math.max(boundary.left + padding, boundary.right - elementRect.width - padding)
+            );
+            coordinates.top = Math.min(
+                Math.max(coordinates.top, boundary.top + padding),
+                Math.max(boundary.top + padding, boundary.bottom - elementRect.height - padding)
+            );
+        }
+
+        this.el.style.right = "auto";
+        this.el.style.bottom = "auto";
+        this.el.style.left = (isFixed
+            ? coordinates.left
+            : coordinates.left - parentRect.left + this.container.scrollLeft) + "px";
+        this.el.style.top = (isFixed
+            ? coordinates.top
+            : coordinates.top - parentRect.top + this.container.scrollTop) + "px";
+        this.isSnap = false;
+        this.__setRectInfo();
+        this.createEvent("element-positioned");
+    },
+
     _onDown: function (e) {
+        // A title-bar style drag handle may contain controls. Those controls
+        // must retain their native click, focus, and file-picker behavior.
+        const interactive = e.target?.closest?.(INTERACTIVE_SELECTOR);
+        if (this.dragHandle && interactive && this.dragHandle.contains(interactive)) {
+            this.clickedInfo = null;
+            return;
+        }
+
         this.__getBoundStatus(e);
 
         this.clickedInfo = {
@@ -121,6 +253,7 @@ position.prototype = {
     },
 
     _onUp: function (e) {
+        this._unbindDocumentDrag();
         if (!this.clickedInfo) {
             return;
         }
