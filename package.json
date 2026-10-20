@@ -1,6 +1,6 @@
 {
   "name": "@cocreate/position",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "description": "Make any element draggable and movable. Customizable via attributes, great for popups, alerts, multitasking and displaying multiple views.",
   "keywords": [
     "position",
