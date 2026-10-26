@@ -48,6 +48,7 @@ module.exports = async (env, argv) => {
 			minimizer: [
 				new EsbuildPlugin({
 					target: "es2017",
+					minify: true,
 					css: true
 				})
 			],
