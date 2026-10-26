@@ -1,46 +1,206 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
     <head>
-        <title>Position | CoCreateJS</title>
-        <link
-            rel="icon"
-            type="image/png"
-            sizes="32x32"
-            href="../assets/favicon.ico" />
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>CoCreate Position | Demo</title>
+        <link rel="stylesheet" href="../dist/CoCreate-position.css" />
         <style>
-            body {
-                height: 100vh;
-                margin: 0px;
+            :root {
+                font-family: system-ui, sans-serif;
+                color: #202938;
+                background: #f4f6f8;
             }
+
+            body {
+                max-width: 1100px;
+                margin: 0 auto;
+                padding: 32px 20px 64px;
+            }
+
+            h1, h2, p { margin-top: 0; }
+            h1 { margin-bottom: 8px; }
+            .muted { color: #5d6878; }
+            .demo-section {
+                margin-top: 28px;
+                padding: 22px;
+                border: 1px solid #d9dee5;
+                border-radius: 10px;
+                background: white;
+            }
+
+            .floating-panel {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 2;
+                width: 220px;
+                min-height: 110px;
+                padding: 14px;
+                border-radius: 8px;
+                background: #e8eefc;
+                box-shadow: 0 6px 24px #1c2c441f;
+            }
+
+            .snap-zones {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 12px;
+                min-height: 240px;
+                margin-top: 24px;
+            }
+
+            .snap-area {
+                display: flex;
+                align-items: stretch;
+                min-height: 240px;
+                padding: 12px;
+                border: 2px dashed #bdc7d4;
+                border-radius: 8px;
+                background: #fafbfd;
+            }
+
+            .snap-area:empty::before {
+                content: attr(data-label);
+                color: #7a8492;
+            }
+
+            .snap-area .floating-panel {
+                position: relative;
+                inset: auto;
+                z-index: auto;
+                box-sizing: border-box;
+                width: 100%;
+                min-height: 100%;
+                margin: 0;
+            }
+
+            [position-container].snap-area { outline: 3px solid #77a8f7; outline-offset: 2px; }
 
             [drag-handle] {
-                top: 0px;
-                left: 0px;
-                width: 100%;
-                height: 50px;
-                padding: 0.5em;
-                position: absolute;
-                background: gainsboro;
+                margin: -14px -14px 12px;
+                padding: 10px 14px;
+                border-radius: 8px 8px 0 0;
+                background: #d4def4;
                 cursor: move;
+                user-select: none;
+            }
+
+            .anchor-row { display: flex; gap: 12px; align-items: center; }
+            button { padding: 9px 13px; cursor: pointer; }
+            #anchored-panel {
+                position: fixed;
+                z-index: 3;
+                width: 220px;
+                padding: 14px;
+                border: 1px solid #93a6ca;
+                border-radius: 8px;
+                background: #f1f5ff;
+                box-shadow: 0 6px 24px #1c2c4430;
+            }
+
+            .boards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+            .board-column h3 { margin: 0 0 10px; font-size: 15px; }
+            .drop-zone {
+                min-height: 240px;
+                padding: 12px;
+                border: 2px dashed #bdc7d4;
+                border-radius: 8px;
+                background: #fafbfd;
+            }
+
+            .drop-zone:empty::after { content: "Drop a card here"; color: #7a8492; }
+            .drop-item, .copy-item {
+                position: relative;
+                margin: 0 0 10px;
+                padding: 12px;
+                border: 1px solid #d3dae3;
+                border-radius: 6px;
+                background: #fff;
+                cursor: grab;
+            }
+
+            .drop-item:active, .copy-item:active { cursor: grabbing; }
+            [position-container] { outline: 3px solid #77a8f7; outline-offset: 2px; }
+            [position-marker] {
+                margin: 0 0 10px;
+                border: 2px dashed #4384e8;
+                border-radius: 6px;
+                background: #eaf2ff;
+                opacity: .8;
+            }
+
+            code { padding: 2px 5px; border-radius: 4px; background: #eef1f5; }
+            pre { overflow: auto; padding: 14px; border-radius: 7px; background: #f2f4f7; }
+            @media (max-width: 760px) {
+                .boards { grid-template-columns: 1fr; }
+                .floating-panel { position: relative; top: auto; right: auto; margin: 16px 0; }
             }
         </style>
-        <link rel="manifest" href="/manifest.webmanifest" />
     </head>
-
     <body>
-        <div
-            class="position:fixed height:300px width:300px background:whitesmoke"
-            positionable>
-            <div drag-handle></div>
-        </div>
+        <h1>CoCreate Position</h1>
+        <p class="muted">A small interactive guide to positioning, queries, and insertion references.</p>
 
-        <div
-            class="position:fixed height:300px width:300px background:brown"
-            moveable>
-            <div drag-handle></div>
-        </div>
+        <section class="demo-section">
+            <h2>Move an element</h2>
+            <p class="muted">Drag the panel by its header into the left or right snap area. The panel itself defines the allowed destinations with <code>droppable-query</code>.</p>
+            <div class="floating-panel" draggable droppable-query="$top .snap-area[]">
+                <div drag-handle>Drag this panel</div>
+                Its position can be controlled with CSS and the Position events.
+            </div>
+            <div class="snap-zones">
+                <div class="snap-area" data-label="Left snap area"></div>
+                <div class="snap-area" data-label="Right snap area"></div>
+            </div>
+            <pre><code>&lt;div draggable droppable-query="$top .snap-area[]"&gt;...&lt;/div&gt;</code></pre>
+        </section>
 
-        <!-- <script src="../dist/CoCreate-position.js"></script> -->
-        <script src="https://CoCreate.app/dist/CoCreate.js"></script>
+        <section class="demo-section">
+            <h2>Declarative placement with position-query</h2>
+            <p class="muted">The panel positions itself relative to the element selected by its query.</p>
+            <div class="anchor-row">
+                <button id="placement-anchor" type="button">Anchor element</button>
+                <span id="anchored-panel" position-query="$top #placement-anchor" position="bottom left">
+                    I’m positioned relative to the button.
+                </span>
+            </div>
+            <pre><code>&lt;button id="placement-anchor"&gt;Anchor&lt;/button&gt;
+&lt;div position-query="$top #placement-anchor" position="bottom left"&gt;...&lt;/div&gt;</code></pre>
+        </section>
+
+        <section class="demo-section">
+            <h2>Container query and insertion marker</h2>
+            <p class="muted">
+                Move Card A or clone Card B into a highlighted board. The source queries select
+                movable and clonable items; Position marks the active board and places a marker.
+            </p>
+            <div class="boards" draggable-query=".drop-item" clonable-query=".copy-item" droppable-query="$top .drop-zone[]">
+                <div class="board-column">
+                    <h3>Board one</h3>
+                    <div class="drop-zone" id="board-one">
+                        <div class="drop-item">Card A</div>
+                    </div>
+                </div>
+                <div class="board-column">
+                    <h3>Board two</h3>
+                    <div class="drop-zone" id="board-two">
+                        <div class="copy-item">Card B (clone me)</div>
+                    </div>
+                </div>
+                <div class="board-column">
+                    <h3>Board three</h3>
+                    <div class="drop-zone" id="board-three"></div>
+                </div>
+            </div>
+            <pre><code>&lt;div class="boards"
+     draggable-query=".drop-item"
+     clonable-query=".copy-item"
+     droppable-query="$top .drop-zone[]"&gt;
+    ... cards ...
+&lt;/div&gt;</code></pre>
+        </section>
+
+        <script src="../dist/CoCreate-position.js"></script>
     </body>
 </html>

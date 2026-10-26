@@ -20,3 +20,14 @@
 [drag-area] {
   cursor: move;
 }
+
+.position-moving {
+	position: fixed !important;
+	width: var(--position-moving-width) !important;
+	height: var(--position-moving-height) !important;
+	box-sizing: border-box !important;
+}
+
+.position-moving-preview {
+	pointer-events: none;
+}

@@ -1,8 +1,11 @@
+import { queryElements } from "@cocreate/utils";
+
 function position(el, container, options) {
     if (!(el && el.nodeType && el.nodeType === 1)) {
         return;
     }
 
+    this.options = Object.assign({ draggable: true }, options);
     /** define constant **/
     this.dragAreaHeight = 50;
     this.MARGIN = 5;
@@ -31,10 +34,13 @@ function position(el, container, options) {
     this.clickedInfo = null;
     this.preSnapped = null;
     this.isSnap = false;
+    this.reference = null;
 
-    this._createGhost(this.container.getAttribute("data-ghost-class"));
-    this._initEvent();
-    this._selectElement()
+    if (this.options.draggable) {
+        this._createSnapGhost(this.container.getAttribute("data-ghost-class"));
+        if (!this.options.delegated) this._initEvent();
+        this._selectElement();
+    }
 }
 
 const INTERACTIVE_SELECTOR = [
@@ -49,10 +55,29 @@ const INTERACTIVE_SELECTOR = [
     "[moveable-ignore]"
 ].join(",");
 
+const hoveredDocuments = new WeakSet();
+
+function trackHoveredDocument(doc) {
+    if (!doc || hoveredDocuments.has(doc)) return;
+    hoveredDocuments.add(doc);
+
+    const update = (e) => {
+        doc.hoveredElement = e.target;
+        if (doc.documentElement) doc.documentElement.hoveredElement = e.target;
+        const frame = doc.defaultView?.frameElement;
+        if (frame) frame.hoveredElement = e.target;
+    };
+
+    doc.addEventListener("mouseover", update);
+    doc.addEventListener("mousemove", update);
+}
+
 position.prototype = {
     constructor: position,
 
     _initEvent: function () {
+        if (this.eventsInitialized) return;
+        this.eventsInitialized = true;
         let self = this;
         this.iframe = this.el.querySelector('iframe')
         if (this.iframe) {
@@ -61,14 +86,19 @@ position.prototype = {
                 iframeContent.addEventListener('mousedown', function (e) {
                     self._selectElement(e.detail.element)
                 })
+                if (self._usesPositionReference()) {
+                    self._watchReferenceFrame(self.iframe, iframeContent);
+                }
             });
         }
 
+        this._initReferenceTracking();
+
         this.__setRectInfo();
 
-        let positionableEl = this.el
+        let dragTargetEl = this.el
         if (this.dragHandle)
-            positionableEl = this.dragHandle
+            dragTargetEl = this.dragHandle
 
         this._documentMouseMove = function (e) {
             if (!self.clickedInfo?.isMoving) return;
@@ -87,24 +117,40 @@ position.prototype = {
         };
         this._documentTouchEnd = function (e) {
             if (!self.clickedInfo?.isMoving) return;
-            self._onUp(e.changedTouches?.[0]);
+            self._onUp(e.changedTouches?.[0], e.type === "touchcancel");
         };
         this._documentBlur = function () {
-            self._onUp();
+            self._onUp(null, true);
         };
 
-        positionableEl.addEventListener('touchstart', function (e) {
-            self._selectElement(e.detail.element)
-            self._onDown(e.touches[0]);
-            if (self.clickedInfo?.isMoving) self._bindDocumentDrag();
+        dragTargetEl.addEventListener('touchstart', function (e) {
+            self._handlePointerDown(e);
         })
 
-        positionableEl.addEventListener('mousedown', function (e) {
-            self._selectElement(e.detail.element)
-            self._onDown(e);
-            if (self.clickedInfo?.isMoving) self._bindDocumentDrag();
+        dragTargetEl.addEventListener('mousedown', function (e) {
+            self._handlePointerDown(e);
         })
 
+    },
+
+    _handlePointerDown: function (event) {
+        if (!event.__positionDelegated) {
+            const scope = this.el.closest("[droppable-query][draggable-query], [droppable-query][clonable-query]");
+            const draggableQuery = scope?.getAttribute("draggable-query");
+            const clonableQuery = scope?.getAttribute("clonable-query");
+            if ((draggableQuery && queryElements({ element: scope, selector: draggableQuery }).includes(this.el)) ||
+                (clonableQuery && queryElements({ element: scope, selector: clonableQuery }).includes(this.el)))
+                return;
+            this.options.dragType = "draggable";
+        }
+        this._onDown(event.touches?.[0] || event, !!event.__positionDelegated);
+        // Prevent native text selection only after this gesture qualifies as a drag.
+        if (this.clickedInfo?.isMoving) {
+            event.__positionHandled = true;
+            event.preventDefault();
+        }
+        this._selectElement();
+        if (this.clickedInfo?.isMoving) this._bindDocumentDrag();
     },
 
     _bindDocumentDrag: function () {
@@ -136,9 +182,29 @@ position.prototype = {
     place: function (anchor = this.el, options = {}) {
         if (!anchor?.getBoundingClientRect) return;
 
-        const placement = options.placement ||
-            anchor.getAttribute("position-placement") ||
-            this.el.getAttribute("position-placement") ||
+        this.positionOptions = options;
+        if (this.positionAnchor !== anchor) {
+            if (this.positionAnchor && this.positionUpdate) {
+                this.positionAnchor.ownerDocument.removeEventListener("scroll", this.positionUpdate, true);
+                this.positionAnchor.ownerDocument.defaultView?.removeEventListener("resize", this.positionUpdate);
+            }
+            this.positionAnchor = anchor;
+            this.positionUpdate = () => {
+                if (this.positionUpdateFrame) return;
+                const view = anchor.ownerDocument.defaultView;
+                this.positionUpdateFrame = view.requestAnimationFrame(() => {
+                    this.positionUpdateFrame = null;
+                    if (this.positionAnchor?.isConnected)
+                        this.place(this.positionAnchor, this.positionOptions);
+                });
+            };
+            anchor.ownerDocument.addEventListener("scroll", this.positionUpdate, true);
+            anchor.ownerDocument.defaultView?.addEventListener("resize", this.positionUpdate);
+        }
+
+        const placement = options.position || options.placement ||
+            this.el.getAttribute("position") ||
+            anchor.getAttribute("position") ||
             "bottom-start";
         const offset = Number(options.offset ??
             anchor.getAttribute("position-offset") ??
@@ -158,7 +224,8 @@ position.prototype = {
         const boundary = isFixed
             ? { left: 0, top: 0, right: innerWidth, bottom: innerHeight }
             : parentRect;
-        let [side, align = "center"] = placement.split("-");
+        let [side, align = "center"] = String(placement).trim().toLowerCase().split(/[\s-]+/);
+        align = ({ left: "start", right: "end", top: "start", bottom: "end" })[align] || align;
 
         const getCoordinates = (currentSide) => {
             let left;
@@ -223,7 +290,39 @@ position.prototype = {
         this.createEvent("element-positioned");
     },
 
-    _onDown: function (e) {
+    unplace: function () {
+        const anchor = this.positionAnchor;
+        if (anchor && this.positionUpdate) {
+            anchor.ownerDocument.removeEventListener("scroll", this.positionUpdate, true);
+            anchor.ownerDocument.defaultView?.removeEventListener("resize", this.positionUpdate);
+        }
+        if (this.positionUpdateFrame)
+            anchor?.ownerDocument.defaultView?.cancelAnimationFrame(this.positionUpdateFrame);
+        this.positionAnchor = null;
+        this.positionUpdate = null;
+        this.positionUpdateFrame = null;
+    },
+
+    _onDown: function (e, delegated = false) {
+        this.dragPreviewStarted = false;
+        if (!this.options.draggable) {
+            this.clickedInfo = null;
+            return;
+        }
+        this.dragScope = delegated && this.options.dragScope?.contains(this.el)
+            ? this.options.dragScope
+            : this.el.closest("[droppable-query]");
+        this.dropQuerySelector = this.dragScope?.getAttribute("droppable-query") || null;
+        this.dragType = this.options.dragType || "draggable";
+        this.reference = null;
+        this._setActivePositionContainer(null);
+        this._removePositionMarker();
+        this.referenceQuerySelector = null;
+        this.referenceQueryTargets = null;
+        this.originalStyle = {
+            present: this.el.hasAttribute("style"),
+            value: this.el.getAttribute("style")
+        };
         // A title-bar style drag handle may contain controls. Those controls
         // must retain their native click, focus, and file-picker behavior.
         const interactive = e.target?.closest?.(INTERACTIVE_SELECTOR);
@@ -245,22 +344,339 @@ position.prototype = {
             boundStatus: this.boundStatus,
             isChangeStart: true
         }
+        this.dragOriginRect = this.el.getBoundingClientRect();
+        const computed = getComputedStyle(this.el);
+        this.dragOriginPosition = computed.position;
+        this.dragOriginLeft = parseFloat(computed.left) || 0;
+        this.dragOriginTop = parseFloat(computed.top) || 0;
+        this.dragOriginalVisibility = [
+            this.el.style.getPropertyValue("visibility"),
+            this.el.style.getPropertyPriority("visibility")
+        ];
+        const style = this.el.style;
+        this.dragSizeVariables = {
+            width: [style.getPropertyValue("--position-moving-width"), style.getPropertyPriority("--position-moving-width")],
+            height: [style.getPropertyValue("--position-moving-height"), style.getPropertyPriority("--position-moving-height")]
+        };
     },
 
     _onMove: function (e) {
+        this._startMoving(e);
+        if (this._usesPositionReference()) {
+            this._prepareReferenceTargets();
+            this._initReferenceTracking();
+            this._updateReference(e.clientX, e.clientY, this.el.ownerDocument);
+        }
         this.__getBoundStatus(e)
         this.__animate();
     },
 
-    _onUp: function (e) {
+    _startMoving: function () {
+        if (!this.clickedInfo?.isMoving || this.dragPreviewStarted) return;
+        this.dragPreviewStarted = true;
+        this.el.classList.add("position-moving");
+        this.movingPosition = this.dragOriginPosition;
+        const rect = this.dragOriginRect;
+        this.el.style.setProperty("--position-moving-width", rect.width + "px");
+        this.el.style.setProperty("--position-moving-height", rect.height + "px");
+        this._createDragGhost();
+        if (this.dragType !== "clonable") {
+            this.el.style.setProperty("visibility", "hidden");
+        }
+        if (this.dragType === "clonable") return;
+        if (this.movingPosition === "fixed") {
+            this.el.style.left = rect.left + "px";
+            this.el.style.top = rect.top + "px";
+            this.el.style.right = "auto";
+            this.el.style.bottom = "auto";
+        } else if (this.movingPosition === "absolute") {
+            const offsetParent = this.el.offsetParent || this.el.parentElement;
+            const parentRect = offsetParent.getBoundingClientRect();
+            this.el.style.left = rect.left - parentRect.left - offsetParent.clientLeft + offsetParent.scrollLeft + "px";
+            this.el.style.top = rect.top - parentRect.top - offsetParent.clientTop + offsetParent.scrollTop + "px";
+            this.el.style.right = "auto";
+            this.el.style.bottom = "auto";
+        }
+    },
+
+    _createDragGhost: function () {
+        const doc = this.el.ownerDocument;
+        const ghost = this.el.cloneNode(true);
+        const computed = getComputedStyle(this.el);
+        for (let i = 0; i < computed.length; i++) {
+            const property = computed[i];
+            ghost.style.setProperty(property, computed.getPropertyValue(property), computed.getPropertyPriority(property));
+        }
+        ghost.classList.add("position-moving");
+        ghost.classList.add("position-moving-preview");
+        ghost.setAttribute("aria-hidden", "true");
+        const activationAttributes = ["draggable", "position-target", "draggable-query", "clonable-query", "droppable-query", "draggable-value", "clonable-value", "position-reference"];
+        const previewElements = [ghost, ...ghost.querySelectorAll("*")];
+        for (const element of previewElements) {
+            element.removeAttribute("id");
+            for (const attribute of activationAttributes) element.removeAttribute(attribute);
+        }
+        ghost.style.position = "fixed";
+        ghost.style.left = this.dragOriginRect.left + "px";
+        ghost.style.top = this.dragOriginRect.top + "px";
+        ghost.style.width = this.dragOriginRect.width + "px";
+        ghost.style.height = this.dragOriginRect.height + "px";
+        ghost.style.margin = "0";
+        ghost.style.pointerEvents = "none";
+        ghost.style.zIndex = "2147483647";
+        (doc.body || doc.documentElement).appendChild(ghost);
+        this.dragGhostEl = ghost;
+    },
+
+    _moveDragPreview: function () {
+        if (!this.clickedInfo) return;
+        const left = this.point.clientX - this.clickedInfo.x;
+        const top = this.point.clientY - this.clickedInfo.y;
+        if (this.dragGhostEl) {
+            this.dragGhostEl.style.left = left + "px";
+            this.dragGhostEl.style.top = top + "px";
+        }
+        if (this.dragType === "clonable") {
+            return;
+        } else if (this.movingPosition === "fixed") {
+            this.el.style.left = left + "px";
+            this.el.style.top = top + "px";
+        } else if (this.movingPosition === "absolute") {
+            const offsetParent = this.el.offsetParent || this.el.parentElement;
+            const parentRect = offsetParent.getBoundingClientRect();
+            this.el.style.left = this.point.clientX - parentRect.left - offsetParent.clientLeft + offsetParent.scrollLeft - this.clickedInfo.x + "px";
+            this.el.style.top = this.point.clientY - parentRect.top - offsetParent.clientTop + offsetParent.scrollTop - this.clickedInfo.y + "px";
+        } else {
+            this.el.style.left = this.dragOriginLeft + this.point.clientX - this.dragOriginRect.left + "px";
+            this.el.style.top = this.dragOriginTop + this.point.clientY - this.dragOriginRect.top + "px";
+        }
+    },
+
+    _finishMoving: function () {
+        this.el.classList.remove("position-moving");
+        this.dragGhostEl?.remove();
+        this.dragGhostEl = null;
+        this.dragPreviewStarted = false;
+        const [visibility, priority] = this.dragOriginalVisibility || [];
+        if (visibility) this.el.style.setProperty("visibility", visibility, priority);
+        else this.el.style.removeProperty("visibility");
+        if (this.dragSizeVariables) {
+            for (const [name, [value, priority]] of Object.entries({
+                "--position-moving-width": this.dragSizeVariables.width,
+                "--position-moving-height": this.dragSizeVariables.height
+            })) {
+                if (value) this.el.style.setProperty(name, value, priority);
+                else this.el.style.removeProperty(name);
+            }
+        }
+    },
+
+    _initReferenceTracking: function () {
+        if (!this._usesPositionReference() || this.referenceTrackingInitialized) return;
+        this.referenceTrackingInitialized = true;
+        trackHoveredDocument(this.el.ownerDocument);
+        const watchFrame = (frame) => {
+            try {
+                if (frame.contentDocument?.readyState === "complete")
+                    this._watchReferenceFrame(frame, frame.contentDocument);
+                else frame.addEventListener("load", () => {
+                    try { this._watchReferenceFrame(frame, frame.contentDocument); } catch {}
+                }, { once: true });
+            } catch {}
+        };
+        this.el.ownerDocument.querySelectorAll("iframe").forEach(watchFrame);
+        const MutationObserver = this.el.ownerDocument.defaultView.MutationObserver;
+        this.referenceObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) for (const node of mutation.addedNodes) {
+                if (node.nodeType !== 1) continue;
+                if (node.matches("iframe")) watchFrame(node);
+                node.querySelectorAll?.("iframe").forEach(watchFrame);
+            }
+        });
+        this.referenceObserver.observe(this.el.ownerDocument.documentElement, {
+            childList: true,
+            subtree: true
+        });
+    },
+
+    _usesPositionReference: function () {
+        return this.el.hasAttribute("position-reference") ||
+            !!this.dropQuerySelector;
+    },
+
+    _prepareReferenceTargets: function () {
+        const selector = this.dropQuerySelector;
+        if (selector === null) {
+            this.referenceQuerySelector = selector;
+            this.referenceQueryTargets = null;
+            return;
+        }
+        if (this.referenceQuerySelector === selector && this.referenceQueryTargets) return;
+
+        this.referenceQuerySelector = selector;
+        this.referenceQueryTargets = new Set(queryElements({
+            element: this.dragScope || this.el,
+            selector
+        }));
+    },
+
+    _watchReferenceFrame: function (frame, frameDocument) {
+        if (!frameDocument) return;
+        if (frame.positionReferenceDocument !== frameDocument) {
+            frame.positionReferenceDocument = frameDocument;
+            trackHoveredDocument(frameDocument);
+            const update = (e) => {
+                frame.dispatchEvent(new CustomEvent("position-reference-move", {
+                    detail: { element: e.target, x: e.clientX, y: e.clientY, document: frameDocument }
+                }));
+            };
+            frameDocument.addEventListener("mouseover", update);
+            frameDocument.addEventListener("mousemove", update);
+        }
+        if (!frame.positionReferenceInstances) frame.positionReferenceInstances = new WeakSet();
+        if (frame.positionReferenceInstances.has(this)) return;
+        frame.positionReferenceInstances.add(this);
+        frame.addEventListener("position-reference-move", (e) => {
+            if (!this.clickedInfo?.isMoving) return;
+            this._prepareReferenceTargets();
+            this._updateReference(e.detail.x, e.detail.y, e.detail.document, e.detail.element);
+        });
+    },
+
+    _setActivePositionContainer: function (container) {
+        if (this.activePositionContainer === container) return;
+        this.activePositionContainer?.removeAttribute("position-container");
+        this.activePositionContainer = container || null;
+        this.activePositionContainer?.setAttribute("position-container", "");
+    },
+
+    _updateReference: function (x, y, doc, hoveredElement) {
+        let candidate = hoveredElement || doc.elementsFromPoint(x, y).find((candidate) =>
+            candidate !== this.el && !this.el.contains(candidate)
+        );
+        if (candidate === this.el || this.el.contains(candidate)) candidate = null;
+        const hasContainerQuery = !!this.dropQuerySelector;
+        let element = candidate;
+        let container = null;
+        let isEmptyContainer = false;
+        if (candidate && hasContainerQuery) {
+            this._prepareReferenceTargets();
+            container = element;
+            while (container && !this.referenceQueryTargets.has(container))
+                container = container.parentElement;
+
+            this._setActivePositionContainer(container);
+
+            if (!container) {
+                element = null;
+            } else if ([...container.children].filter((child) =>
+                !child.hasAttribute("position-marker")
+            ).length === 0) {
+                element = container;
+                isEmptyContainer = true;
+            } else {
+                element = candidate === container ? null : candidate;
+                while (element && element.parentElement !== container)
+                    element = element.parentElement;
+                if (element?.hasAttribute("position-marker")) element = null;
+
+                if (!element) {
+                    let closestDistance = Infinity;
+                    for (const child of container.children) {
+                        if (child.hasAttribute("position-marker") || child === this.el || this.el.contains(child)) continue;
+                        const rect = child.getBoundingClientRect();
+                        const dx = Math.max(rect.left - x, 0, x - rect.right);
+                        const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+                        const distance = dx * dx + dy * dy;
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            element = child;
+                        }
+                    }
+                }
+            }
+        } else {
+            this._setActivePositionContainer(null);
+        }
+        if (!element) {
+            this._removePositionMarker();
+            if (this.reference) {
+                this.reference = null;
+                this.createEvent("element-position-reference");
+            }
+            return;
+        }
+        const rect = element.getBoundingClientRect();
+        const vertical = rect.height >= rect.width;
+        const offset = vertical ? y - rect.top : x - rect.left;
+        const size = vertical ? rect.height : rect.width;
+        let position;
+        if (isEmptyContainer) position = "afterbegin";
+        else if (hasContainerQuery) position = offset < size / 2 ? "beforebegin" : "afterend";
+        else {
+            const edge = Math.min(size * 0.2, 24);
+            if (offset < edge) position = "beforebegin";
+            else if (offset > size - edge) position = "afterend";
+            else position = offset < size / 2 ? "afterbegin" : "beforeend";
+        }
+
+        const reference = {
+            element,
+            container: hasContainerQuery ? container : null,
+            position,
+            x,
+            y,
+            document: doc
+        };
+        this.reference = reference;
+        this._updatePositionMarker(reference);
+        this.createEvent("element-position-reference");
+    },
+
+    _updatePositionMarker: function (reference) {
+        const doc = reference.document || this.el.ownerDocument;
+        if (!this.positionMarker || this.positionMarker.ownerDocument !== doc) {
+            this._removePositionMarker();
+            this.positionMarker = doc.createElement("div");
+            this.positionMarker.setAttribute("position-marker", "");
+            this.positionMarker.style.width = this.el.getBoundingClientRect().width + "px";
+            this.positionMarker.style.height = this.el.getBoundingClientRect().height + "px";
+            this.positionMarker.style.boxSizing = "border-box";
+            this.positionMarker.style.flex = "none";
+            this.positionMarker.style.pointerEvents = "none";
+        }
+
+        const marker = this.positionMarker;
+        const alreadyPlaced = reference.position === "beforebegin"
+            ? marker.nextElementSibling === reference.element
+            : reference.position === "afterend"
+                ? marker.previousElementSibling === reference.element
+                : reference.position === "afterbegin"
+                    ? marker.parentElement === reference.element && marker === reference.element.firstElementChild
+                    : marker.parentElement === reference.element && marker === reference.element.lastElementChild;
+        if (!alreadyPlaced)
+            reference.element.insertAdjacentElement(reference.position, marker);
+    },
+
+    _removePositionMarker: function () {
+        this.positionMarker?.remove();
+        this.positionMarker = null;
+    },
+
+    _onUp: function (e, cancelled = false) {
         this._unbindDocumentDrag();
         if (!this.clickedInfo) {
+            this._finishMoving();
+            this._setActivePositionContainer(null);
+            this._removePositionMarker();
             return;
         }
         if (e) {
             this.__getBoundStatus(e);
+            if (this._usesPositionReference())
+                this._updateReference(e.clientX, e.clientY, this.el.ownerDocument);
         }
-        if (this.clickedInfo.isMoving && !this.isParked) {
+        if (this.clickedInfo.isMoving && !this.dropQuerySelector && !this.isParked) {
             let p_w = this.el.parentNode.offsetWidth, p_h = this.el.parentNode.offsetHeight;
             let snap_info = null;
 
@@ -292,15 +708,81 @@ position.prototype = {
                 h: this.rect.height
             }
 
-            this._ghostProcess(ghost_info)
+            this._snapGhostProcess(ghost_info)
         }
+
+        if (this.clickedInfo.isMoving) {
+            this._finishMoving();
+            if (this.dropQuerySelector) {
+                if (!cancelled && this.reference) {
+                    const inserted = this._applyDrop();
+                    if (!inserted) this._restoreOriginalStyle();
+                } else {
+                    this._restoreOriginalStyle();
+                }
+            }
+        }
+
+        this._removePositionMarker();
 
         if (this.clickedInfo.isMoving) {
             this.createEvent('element-moveend');
         }
 
-
+        this._setActivePositionContainer(null);
         this.clickedInfo = null;
+    },
+
+    _applyDrop: function () {
+        const { element, position } = this.reference || {};
+        if (!element || !position || !this.dropQuerySelector) return false;
+        if (element === this.el || this.el.contains(element)) return false;
+
+        const mode = this.dragType === "clonable" ? "clonable" : "draggable";
+        const valueAttribute = `${mode}-value`;
+        const hasValue = this.el.hasAttribute(valueAttribute);
+        const value = hasValue
+            ? this.el.getAttribute(valueAttribute)
+            : mode === "clonable"
+                ? this.el.cloneNode(true)
+                : this.el;
+        if (typeof value !== "string" && value?.nodeType !== 1) return false;
+        const insertValue = mode === "clonable" && value === this.el
+            ? this.el.cloneNode(true)
+            : value;
+
+        this._restoreOriginalStyle();
+        let inserted;
+        try {
+            if (typeof value === "string") {
+                element.insertAdjacentHTML(position, value);
+                inserted = true;
+            } else {
+                inserted = element.insertAdjacentElement(position, insertValue);
+            }
+        } catch (error) {
+            console.error("Position drop failed:", error);
+            return false;
+        }
+
+        if (!inserted) return false;
+        if (mode === "draggable" && hasValue && value !== this.el)
+            this.el.remove();
+
+        this.createEvent("element-position-inserted", {
+            type: mode,
+            value: insertValue,
+            inserted,
+            reference: this.reference
+        });
+        return true;
+    },
+
+    _restoreOriginalStyle: function () {
+        if (this.originalStyle?.present)
+            this.el.setAttribute("style", this.originalStyle.value);
+        else
+            this.el.removeAttribute("style");
     },
 
     __setBound: function (el, x, y, w, h) {
@@ -334,6 +816,8 @@ position.prototype = {
 
         this.point.x = x;
         this.point.y = y;
+        this.point.clientX = e.clientX;
+        this.point.clientY = e.clientY;
         this.point.cx = e.clientX - parentRect.left;
         this.point.cy = e.clientY - parentRect.top;
 
@@ -381,20 +865,12 @@ position.prototype = {
                 ghost_info = { x: this.rect.left, y: this.rect.top, w: this.rect.width, h: this.rect.height, type: "hide" }
             }
 
-            if (ghost_info && !this.isParked && !this.isSnap) {
-                this._ghostProcess(ghost_info)
+            if (ghost_info && !this.dropQuerySelector && !this.isParked && !this.isSnap) {
+                this._snapGhostProcess(ghost_info)
             }
 
-            if (this.isSnap) {
-                this.el.style.left = this.point.cx + 'px';
-                this.el.style.top = this.point.cy + 'px';
-                this.el.style.width = this.preSnapped.width + 'px';
-                this.el.style.height = this.preSnapped.height + 'px';
-                this.isSnap = false;
-            } else {
-                this.el.style.top = (this.point.cy - c_info.y) + 'px';
-                this.el.style.left = (this.point.cx - c_info.x) + 'px';
-            }
+            if (this.isSnap) this.isSnap = false;
+            this._moveDragPreview();
 
             eventName = "element-moving";
             if (c_info.isChangeStart) {
@@ -426,12 +902,14 @@ position.prototype = {
      * Position Events
      * move: element-moving, element-moveend, element-movestart
      **/
-    createEvent(eventName) {
-        const event = new CustomEvent(eventName, { detail: { element: this.el, instance: this } });
+    createEvent(eventName, detail = {}) {
+        const event = new CustomEvent(eventName, {
+            detail: { element: this.el, instance: this, reference: this.reference, ...detail }
+        });
         this.el.dispatchEvent(event);
     },
 
-    _createGhost: function (ghostClass) {
+    _createSnapGhost: function (ghostClass) {
         let node = document.createElement("div");
         if (!ghostClass) {
             ghostClass = "snap-ghost";
@@ -439,25 +917,22 @@ position.prototype = {
 
         node.classList.add(ghostClass);
         this.container.appendChild(node);
-        this.ghostEl = node;
+        this.snapGhostEl = node;
     },
 
-    _ghostProcess: function (info) {
-        this.ghostEl.style.left = info.x + 'px';
-        this.ghostEl.style.top = info.y + 'px';
-        this.ghostEl.style.width = info.w + 'px';
-        this.ghostEl.style.height = info.h + 'px';
+    _snapGhostProcess: function (info) {
+        this.snapGhostEl.style.left = info.x + 'px';
+        this.snapGhostEl.style.top = info.y + 'px';
+        this.snapGhostEl.style.width = info.w + 'px';
+        this.snapGhostEl.style.height = info.h + 'px';
 
         if (info.type === "show") {
-            if (this.ghostEl.style.display === 'none') {
-                this.ghostEl.style.display = 'block'
+            if (this.snapGhostEl.style.display === 'none') {
+                this.snapGhostEl.style.display = 'block'
             }
-            this.ghostEl.style.opacity = 0.2;
+            this.snapGhostEl.style.opacity = 0.2;
         } else {
-            this.ghostEl.style.opacity = 0;
-            if (this.ghostEl.style.display !== 'none') {
-                this.ghostEl.style.display = 'none'
-            }
+            this.snapGhostEl.setAttribute("style", "display: none;");
         }
         return;
     },
