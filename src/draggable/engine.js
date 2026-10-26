@@ -1,4 +1,5 @@
 import { dispatch } from "../helpers/events.js";
+import { hasSelection } from "@cocreate/utils";
 
 function position(el, container, options) {
     if (!(el && el.nodeType && el.nodeType === 1)) {
@@ -79,6 +80,7 @@ position.prototype = {
             this._documentMouseMove = function (e) {
                 if (!self.clickedInfo?.isMoving) return;
                 e.preventDefault();
+                self._clearDocumentSelection();
                 self._onMove(e);
             };
             this._documentMouseUp = function (e) {
@@ -89,6 +91,7 @@ position.prototype = {
             this._documentTouchMove = function (e) {
                 if (!self.clickedInfo?.isMoving || !e.touches.length) return;
                 e.preventDefault();
+                self._clearDocumentSelection();
                 self._onMove(e.touches[0]);
             };
             this._documentTouchEnd = function (e) {
@@ -110,18 +113,49 @@ position.prototype = {
     },
 
     _handlePointerDown: function (event) {
+        if (event.which > 1) return;
         if (!event.__positionDelegated) {
             if (this._shouldDelegateDrag?.()) return;
             this.options.dragType = "draggable";
             event.__positionHandled = true;
         }
-        this._onDown(event.touches?.[0] || event, !!event.__positionDelegated);
-        if (this.clickedInfo?.isMoving) {
-            event.__positionHandled = true;
-            event.preventDefault();
+        this._delayDragStart(event, !!event.__positionDelegated);
+    },
+
+    _delayDragStart: function (event, delegated = false) {
+        this._cancelPendingDragStart();
+        const doc = this.el.ownerDocument;
+        this.pendingDragCancel = () => this._cancelPendingDragStart();
+        doc.addEventListener("mouseup", this.pendingDragCancel, true);
+        doc.addEventListener("touchend", this.pendingDragCancel, true);
+        doc.addEventListener("touchcancel", this.pendingDragCancel, true);
+
+        this.dragStartTimer = setTimeout(() => {
+            this._cancelPendingDragStart();
+            const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
+            if (target?.hasAttribute("dnd-exclude") || hasSelection(this.el)) return;
+
+            // Retain the original event until selection has been checked, then
+            // initialize drag state from its source and pointer coordinates.
+            this._onDown(event.touches?.[0] || event, delegated);
+            if (!this.clickedInfo?.isMoving) return;
+            this._selectElement();
+            this._bindDocumentDrag();
+        }, 200);
+    },
+
+    _cancelPendingDragStart: function () {
+        if (this.dragStartTimer) {
+            clearTimeout(this.dragStartTimer);
+            this.dragStartTimer = null;
         }
-        this._selectElement();
-        if (this.clickedInfo?.isMoving) this._bindDocumentDrag();
+        const doc = this.el.ownerDocument;
+        if (this.pendingDragCancel) {
+            doc.removeEventListener("mouseup", this.pendingDragCancel, true);
+            doc.removeEventListener("touchend", this.pendingDragCancel, true);
+            doc.removeEventListener("touchcancel", this.pendingDragCancel, true);
+            this.pendingDragCancel = null;
+        }
     },
 
     _bindDocumentDrag: function () {
@@ -180,6 +214,9 @@ position.prototype = {
             isChangeStart: true
         }
         this.dragOriginRect = this.el.getBoundingClientRect();
+        this.dragStartClientX = e.clientX;
+        this.dragStartClientY = e.clientY;
+        this.dragOriginOffsetParent = this.el.offsetParent || this.el.parentElement;
         const computed = getComputedStyle(this.el);
         this.dragOriginPosition = computed.position;
         this.dragOriginLeft = parseFloat(computed.left) || 0;
@@ -203,6 +240,10 @@ position.prototype = {
         this.__animate();
     },
 
+    _clearDocumentSelection: function () {
+        this.el.ownerDocument.getSelection()?.removeAllRanges();
+    },
+
     _startMoving: function () {
         if (!this.clickedInfo?.isMoving || this.dragPreviewStarted) return;
         this.dragPreviewStarted = true;
@@ -216,20 +257,6 @@ position.prototype = {
         this._createDragGhost();
         if (this.dragType !== "clonable") {
             this.el.style.setProperty("visibility", "hidden");
-        }
-        if (this.dragType === "clonable") return;
-        if (this.movingPosition === "fixed") {
-            this.el.style.left = rect.left + "px";
-            this.el.style.top = rect.top + "px";
-            this.el.style.right = "auto";
-            this.el.style.bottom = "auto";
-        } else if (this.movingPosition === "absolute") {
-            const offsetParent = this.el.offsetParent || this.el.parentElement;
-            const parentRect = offsetParent.getBoundingClientRect();
-            this.el.style.left = rect.left - parentRect.left - offsetParent.clientLeft + offsetParent.scrollLeft + "px";
-            this.el.style.top = rect.top - parentRect.top - offsetParent.clientTop + offsetParent.scrollTop + "px";
-            this.el.style.right = "auto";
-            this.el.style.bottom = "auto";
         }
     },
 
@@ -273,20 +300,40 @@ position.prototype = {
             this.dragGhostEl.style.left = left + "px";
             this.dragGhostEl.style.top = top + "px";
         }
-        if (this.dragType === "clonable") {
-            return;
-        } else if (this.movingPosition === "fixed") {
-            this.el.style.left = left + "px";
-            this.el.style.top = top + "px";
+        if (this.dragType === "clonable") return;
+        // The moving class makes the element fixed while dragging, so every
+        // positioning mode must use viewport coordinates and preserve the
+        // pointer's original offset within the element.
+        this.el.style.left = left + "px";
+        this.el.style.top = top + "px";
+        this.el.style.right = "auto";
+        this.el.style.bottom = "auto";
+    },
+
+    _persistFreeDragPosition: function () {
+        if (!this.dragPreviewStarted || this.dragType === "clonable") return;
+        const left = this.point.clientX - this.clickedInfo.x;
+        const top = this.point.clientY - this.clickedInfo.y;
+        const style = this.el.style;
+
+        if (this.movingPosition === "fixed") {
+            style.left = left + "px";
+            style.top = top + "px";
         } else if (this.movingPosition === "absolute") {
-            const offsetParent = this.el.offsetParent || this.el.parentElement;
+            const offsetParent = this.dragOriginOffsetParent;
             const parentRect = offsetParent.getBoundingClientRect();
-            this.el.style.left = this.point.clientX - parentRect.left - offsetParent.clientLeft + offsetParent.scrollLeft - this.clickedInfo.x + "px";
-            this.el.style.top = this.point.clientY - parentRect.top - offsetParent.clientTop + offsetParent.scrollTop - this.clickedInfo.y + "px";
+            style.left = left - parentRect.left - offsetParent.clientLeft + offsetParent.scrollLeft + "px";
+            style.top = top - parentRect.top - offsetParent.clientTop + offsetParent.scrollTop + "px";
+        } else if (this.movingPosition === "relative") {
+            style.left = this.dragOriginLeft + this.point.clientX - this.dragStartClientX + "px";
+            style.top = this.dragOriginTop + this.point.clientY - this.dragStartClientY + "px";
         } else {
-            this.el.style.left = this.dragOriginLeft + this.point.clientX - this.dragOriginRect.left + "px";
-            this.el.style.top = this.dragOriginTop + this.point.clientY - this.dragOriginRect.top + "px";
+            style.position = "fixed";
+            style.left = left + "px";
+            style.top = top + "px";
         }
+        style.right = "auto";
+        style.bottom = "auto";
     },
 
     _finishMoving: function () {
@@ -341,6 +388,9 @@ position.prototype = {
         }
 
         if (this.clickedInfo.isMoving) {
+            if (!cancelled && !this.dropQuerySelector &&
+                !(this.snapQuerySelector && this.reference) && !this.isSnap)
+                this._persistFreeDragPosition();
             this._finishMoving();
             this._completeSnappableDrop?.(cancelled);
         }
