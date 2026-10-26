@@ -80,6 +80,8 @@ function start() {
 	if (document.querySelector(placementSelector)) loadPlacement().catch(() => {});
 }
 
+start();
+
 /** Load and initialize the requested position feature modules. */
 export function init() {
 	start();
