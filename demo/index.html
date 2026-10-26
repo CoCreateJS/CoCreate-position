@@ -75,7 +75,7 @@
                 margin: 0;
             }
 
-            [position-container].snap-area { outline: 3px solid #77a8f7; outline-offset: 2px; }
+            [droppable].snap-area { outline: 3px solid #77a8f7; outline-offset: 2px; }
 
             [drag-handle] {
                 margin: -14px -14px 12px;
@@ -100,6 +100,8 @@
             }
 
             .boards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+            .board-group + .board-group { margin-top: 24px; }
+            .board-group > h3 { margin: 0 0 12px; font-size: 16px; }
             .board-column h3 { margin: 0 0 10px; font-size: 15px; }
             .drop-zone {
                 min-height: 240px;
@@ -121,7 +123,7 @@
             }
 
             .drop-item:active, .copy-item:active { cursor: grabbing; }
-            [position-container] { outline: 3px solid #77a8f7; outline-offset: 2px; }
+            [droppable] { outline: 3px solid #77a8f7; outline-offset: 2px; }
             [position-marker] {
                 margin: 0 0 10px;
                 border: 2px dashed #4384e8;
@@ -144,8 +146,8 @@
 
         <section class="demo-section">
             <h2>Move an element</h2>
-            <p class="muted">Drag the panel by its header into the left or right snap area. The panel itself defines the allowed destinations with <code>droppable-query</code>.</p>
-            <div class="floating-panel" draggable droppable-query="$top .snap-area[]">
+            <p class="muted">Drag the panel by its header into the left or right snap area. The panel uses <code>snappable-query</code> to select its snap containers.</p>
+            <div class="floating-panel" draggable snappable-query="$top .snap-area[]">
                 <div drag-handle>Drag this panel</div>
                 Its position can be controlled with CSS and the Position events.
             </div>
@@ -153,52 +155,70 @@
                 <div class="snap-area" data-label="Left snap area"></div>
                 <div class="snap-area" data-label="Right snap area"></div>
             </div>
-            <pre><code>&lt;div draggable droppable-query="$top .snap-area[]"&gt;...&lt;/div&gt;</code></pre>
+            <pre><code>&lt;div draggable snappable-query="$top .snap-area[]"&gt;...&lt;/div&gt;</code></pre>
         </section>
 
         <section class="demo-section">
             <h2>Declarative placement with position-query</h2>
-            <p class="muted">The panel positions itself relative to the element selected by its query.</p>
+            <p class="muted">Click the trigger to position the panel beside it.</p>
             <div class="anchor-row">
-                <button id="placement-anchor" type="button">Anchor element</button>
-                <span id="anchored-panel" position-query="$top #placement-anchor" position="bottom left">
+                <button
+                    id="placement-anchor"
+                    type="button"
+                    position-query="$top #anchored-panel"
+                    position="bottom left">
+                    Open positioned panel
+                </button>
+                <span id="anchored-panel" position-target hidden>
                     I’m positioned relative to the button.
                 </span>
             </div>
-            <pre><code>&lt;button id="placement-anchor"&gt;Anchor&lt;/button&gt;
-&lt;div position-query="$top #placement-anchor" position="bottom left"&gt;...&lt;/div&gt;</code></pre>
+            <pre><code>&lt;button position-query="$top #anchored-panel" position="bottom left"&gt;Open&lt;/button&gt;
+&lt;div id="anchored-panel" position-target&gt;...&lt;/div&gt;</code></pre>
         </section>
 
         <section class="demo-section">
             <h2>Container query and insertion marker</h2>
             <p class="muted">
-                Move Card A or clone Card B into a highlighted board. The source queries select
-                movable and clonable items; Position marks the active board and places a marker.
+                The first row moves its cards; the second row clones its cards. Each row has its
+                own source query, while both can insert into any highlighted board.
             </p>
-            <div class="boards" draggable-query=".drop-item" clonable-query=".copy-item" droppable-query="$top .drop-zone[]">
-                <div class="board-column">
-                    <h3>Board one</h3>
-                    <div class="drop-zone" id="board-one">
-                        <div class="drop-item">Card A</div>
+            <div class="board-group">
+                <h3>Draggable cards</h3>
+                <div class="boards" draggable-query=".drop-item[]" droppable-query="$top .drop-zone[]">
+                    <div class="board-column">
+                        <h3>Board one</h3>
+                        <div class="drop-zone" id="move-board-one"><div class="drop-item">Move card A</div></div>
                     </div>
-                </div>
-                <div class="board-column">
-                    <h3>Board two</h3>
-                    <div class="drop-zone" id="board-two">
-                        <div class="copy-item">Card B (clone me)</div>
+                    <div class="board-column">
+                        <h3>Board two</h3>
+                        <div class="drop-zone" id="move-board-two"><div class="drop-item">Move card B</div></div>
                     </div>
-                </div>
-                <div class="board-column">
-                    <h3>Board three</h3>
-                    <div class="drop-zone" id="board-three"></div>
+                    <div class="board-column">
+                        <h3>Board three</h3>
+                        <div class="drop-zone" id="move-board-three"><div class="drop-item">Move card C</div></div>
+                    </div>
                 </div>
             </div>
-            <pre><code>&lt;div class="boards"
-     draggable-query=".drop-item"
-     clonable-query=".copy-item"
-     droppable-query="$top .drop-zone[]"&gt;
-    ... cards ...
-&lt;/div&gt;</code></pre>
+            <div class="board-group">
+                <h3>Clonable cards</h3>
+                <div class="boards" clonable-query=".copy-item[]" droppable-query="$top .drop-zone[]">
+                    <div class="board-column">
+                        <h3>Board one</h3>
+                        <div class="drop-zone" id="clone-board-one"><div class="copy-item">Clone card A</div></div>
+                    </div>
+                    <div class="board-column">
+                        <h3>Board two</h3>
+                        <div class="drop-zone" id="clone-board-two"><div class="copy-item">Clone card B</div></div>
+                    </div>
+                    <div class="board-column">
+                        <h3>Board three</h3>
+                        <div class="drop-zone" id="clone-board-three"><div class="copy-item">Clone card C</div></div>
+                    </div>
+                </div>
+            </div>
+            <pre><code>&lt;div class="boards" draggable-query=".drop-item[]" droppable-query="$top .drop-zone[]"&gt;...&lt;/div&gt;
+&lt;div class="boards" clonable-query=".copy-item[]" droppable-query="$top .drop-zone[]"&gt;...&lt;/div&gt;</code></pre>
         </section>
 
         <script src="../dist/CoCreate-position.js"></script>

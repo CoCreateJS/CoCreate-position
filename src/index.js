@@ -3,14 +3,20 @@ import { queryElements } from "@cocreate/utils";
 import position from "./position";
 import "./index.css";
 
+const positionTriggers = new WeakSet();
 const directDragSelector = "[draggable]";
-const positionScopeSelector = "[droppable-query][draggable-query], [droppable-query][clonable-query]";
+const positionScopeSelector = [
+	"[droppable-query][draggable-query]",
+	"[droppable-query][clonable-query]",
+	"[snappable-query][draggable-query]",
+	"[snappable-query][clonable-query]"
+].join(", ");
 const positionElementSelector = `${directDragSelector}, [position-target]`;
 
 function init() {
 	initElements(document.querySelectorAll(positionElementSelector));
 	initPositionScopes(document.querySelectorAll(positionScopeSelector));
-	initPositionQueries(document.querySelectorAll("[position-query]"));
+	initPositionTriggers(document.querySelectorAll("[position-query]"));
 }
 
 function initElements(elements) {
@@ -40,12 +46,14 @@ function initElement(element, options = {}) {
 
 function initPositionScopes(scopes) {
 	for (const scope of scopes) {
+		const matchesScope = scope.matches(positionScopeSelector);
+		if (scope.positionDragDelegation && matchesScope) continue;
 		if (scope.positionDragDelegation) {
 			scope.removeEventListener("mousedown", scope.positionDragDelegation);
 			scope.removeEventListener("touchstart", scope.positionDragDelegation);
 			scope.positionDragDelegation = null;
 		}
-		if (!scope.matches(positionScopeSelector)) continue;
+		if (!matchesScope) continue;
 
 		const startDrag = (event) => {
 			if (event.__positionHandled) return;
@@ -83,14 +91,30 @@ function initPositionScopes(scopes) {
 	}
 }
 
-function initPositionQueries(elements) {
-	for (const element of elements) {
-		initElement(element);
-		const anchor = queryElements({ element, prefix: "position" })[0];
-		if (anchor && anchor !== element)
-			element.position.place(anchor);
-		else
-			element.position.unplace();
+function initPositionTriggers(elements) {
+	for (const trigger of elements) {
+		if (positionTriggers.has(trigger)) continue;
+		positionTriggers.add(trigger);
+		trigger.addEventListener("click", () => {
+			requestAnimationFrame(() => {
+				const targets = queryElements({ element: trigger, prefix: "position" });
+				const options = {};
+				for (const [option, attribute] of [
+					["position", "position"],
+					["offset", "position-offset"],
+					["padding", "position-padding"],
+					["collision", "position-collision"]
+				]) {
+					if (trigger.hasAttribute(attribute))
+						options[option] = trigger.getAttribute(attribute);
+				}
+				for (const target of targets) {
+					initElement(target);
+					target.hidden = false;
+					target.position.place(trigger, options);
+				}
+			});
+		});
 	}
 }
 
@@ -100,8 +124,8 @@ function refreshNode(node) {
 	if (node.matches(positionScopeSelector)) initPositionScopes([node]);
 	initElements(node.querySelectorAll(positionElementSelector));
 	initPositionScopes(node.querySelectorAll(positionScopeSelector));
-	initPositionQueries(node.matches("[position-query]") ? [node] : []);
-	initPositionQueries(node.querySelectorAll("[position-query]"));
+	initPositionTriggers(node.matches("[position-query]") ? [node] : []);
+	initPositionTriggers(node.querySelectorAll("[position-query]"));
 }
 
 observer.init({
@@ -114,8 +138,8 @@ observer.init({
 observer.init({
 	name: "positionAttributes",
 	types: ["attributes"],
-	attributeFilter: ["draggable", "position-target", "draggable-query", "clonable-query", "droppable-query"],
-	selector: "[draggable], [position-target], [draggable-query], [clonable-query], [droppable-query]",
+	attributeFilter: ["draggable", "position-target", "draggable-query", "clonable-query", "droppable-query", "snappable-query"],
+	selector: "[draggable], [position-target], [draggable-query], [clonable-query], [droppable-query], [snappable-query]",
 	callback: (mutation) => {
 		const element = mutation.target;
 		if (["draggable", "position-target"].includes(mutation.attributeName))
@@ -123,23 +147,18 @@ observer.init({
 		if (element.matches(positionScopeSelector) ||
 			mutation.attributeName === "draggable-query" ||
 			mutation.attributeName === "clonable-query" ||
-			mutation.attributeName === "droppable-query") {
+			mutation.attributeName === "droppable-query" ||
+			mutation.attributeName === "snappable-query") {
 			initPositionScopes([element]);
 		}
 	}
 });
 
 observer.init({
-	name: "positionPlacementAttributes",
+	name: "positionTriggerAttributes",
 	types: ["attributes"],
-	attributeFilter: ["position-query", "position", "position-offset", "position-padding", "position-collision"],
-	callback: (mutation) => {
-		const element = mutation.target;
-		if (element.hasAttribute("position-query"))
-			initPositionQueries([element]);
-		else if (mutation.attributeName === "position-query")
-			element.position?.unplace();
-	}
+	attributeFilter: ["position-query"],
+	callback: (mutation) => initPositionTriggers([mutation.target])
 });
 
 init();

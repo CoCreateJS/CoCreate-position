@@ -60,19 +60,18 @@ If you are interested in the future direction of this project, please take a loo
 
 ## Programmatic positioning targets
 
-Add `position-query` to the element that should be positioned. Its query selects
-the anchor; placement settings are read from the positioned element, with the
-anchor as a fallback:
+Add `position-query` and placement settings to a click trigger. Its query selects
+the element to position, and the trigger itself is the reference point:
 
 ```html
-<button id="anchor">Anchor</button>
-<div position-query="$top #anchor" position="top right">Positioned element</div>
+<button position-query="$top #popover" position="top right">Open</button>
+<div id="popover">Positioned element</div>
 ```
 
-The query is resolved when the element is added and whenever `position-query`
-changes. The positioned element initializes itself; no trigger button or
-`position-anchor-query` is needed. `position-target` remains available for
-elements positioned directly through `element.position.place(anchor)`.
+The query is resolved when the trigger is clicked. `position`, `position-offset`,
+`position-padding`, and `position-collision` are read from the trigger. No separate
+anchor attribute is needed. `position-target` remains available for elements
+positioned directly through `element.position.place(anchor)`.
 
 ## Moving and container drag and drop
 
@@ -84,15 +83,17 @@ destinations. A scope can define both source queries. If an element matches both
 `clonable-query` takes precedence. Queries support CoCreate operators, including
 same-origin iframe traversal.
 
-A directly draggable element can also define `droppable-query` itself, or inherit
-the closest ancestor's `droppable-query`:
+Use `snappable-query` when a draggable element should snap into CSS-defined
+containers. It selects the snap containers independently from `droppable-query`.
+After a matching snap inserts the draggable element, Position marks that element
+with `snapped`:
 
 ```html
-<div draggable droppable-query="$top .snap-area[]">Move me into a snap area</div>
+<div draggable snappable-query="$top .snap-area[]">Move me into a snap area</div>
 ```
 
 ```html
-<div draggable-query=".card" droppable-query="$top .board[]">
+<div draggable-query=".card[]" droppable-query="$top .board[]">
     <div class="card">A card</div>
 </div>
 ```
@@ -115,12 +116,13 @@ pointer while moving. Listen for `element-position-reference`; its
 `detail.reference` contains the referenced `element`, its `container` when
 scoped, the insertion position, pointer coordinates, and the owning document.
 Position clears the reference when the pointer leaves all matching containers.
-The matching container receives a temporary `position-container` attribute
-while active; Position moves that attribute to the newly hovered container and
-removes it when the interaction ends.
-Position also inserts an empty `position-marker` element at the current
-insertion point. It uses the moving element's width and height, follows changes
-to the reference, and is removed when the drag ends.
+The matching container receives a temporary `droppable` attribute while active;
+Position moves that attribute to the newly hovered container and removes it when
+the interaction ends.
+Position also inserts a clone of the moving element without inline styles at the
+current insertion point. It preserves classes and content so container CSS can
+size and arrange the marker, follows changes to the reference, and is removed
+when the drag ends.
 The hovered element is also available as `document.hoveredElement` and
 `document.documentElement.hoveredElement`. In a same-origin iframe, those
 properties refer to the element inside the frame, and the iframe element's
@@ -130,11 +132,12 @@ document, the hovered element remains the iframe itself.
 ## Drag preview
 
 While an element is moving, Position adds the `position-moving` class and moves
-a visual preview that follows the pointer. The original element is hidden during
-the drag and restored on release. Style `.position-moving` or
-`.position-moving-preview` to control the moving preview's appearance. This drag
-preview is separate from both the snap preview and the `position-marker` used to
-show the insertion point.
+a visual preview that follows the pointer. A moved element is hidden during the
+drag and restored on release. A clonable source remains in place with the
+`position-cloning` class and default reduced opacity. Style `.position-moving`,
+`.position-cloning`, or `.position-moving-preview` to customize them. The drag
+preview is separate from the snap preview and the `position-marker` insertion
+placeholder.
 
 <a name="about"></a>
 

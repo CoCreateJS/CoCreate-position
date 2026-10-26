@@ -7,7 +7,6 @@ function position(el, container, options) {
 
     this.options = Object.assign({ draggable: true }, options);
     /** define constant **/
-    this.dragAreaHeight = 50;
     this.MARGIN = 5;
     this.FULLSCREEN_MARGIN = -60;
     this.NO_SNAP = -100;
@@ -38,7 +37,7 @@ function position(el, container, options) {
 
     if (this.options.draggable) {
         this._createSnapGhost(this.container.getAttribute("data-ghost-class"));
-        if (!this.options.delegated) this._initEvent();
+        this._initEvent();
         this._selectElement();
     }
 }
@@ -76,72 +75,68 @@ position.prototype = {
     constructor: position,
 
     _initEvent: function () {
-        if (this.eventsInitialized) return;
-        this.eventsInitialized = true;
-        let self = this;
-        this.iframe = this.el.querySelector('iframe')
-        if (this.iframe) {
-            this.iframe.addEventListener('load', function () {
-                const iframeContent = self.iframe.contentDocument;
-                iframeContent.addEventListener('mousedown', function (e) {
-                    self._selectElement(e.detail.element)
-                })
-                if (self._usesPositionReference()) {
-                    self._watchReferenceFrame(self.iframe, iframeContent);
-                }
-            });
+        if (!this.eventsInitialized) {
+            this.eventsInitialized = true;
+            const self = this;
+            this.iframe = this.el.querySelector('iframe')
+            if (this.iframe) {
+                this.iframe.addEventListener('load', function () {
+                    const iframeContent = self.iframe.contentDocument;
+                    iframeContent.addEventListener('mousedown', function (e) {
+                        self._selectElement(e.detail.element)
+                    })
+                    if (self._usesPositionReference()) {
+                        self._watchReferenceFrame(self.iframe, iframeContent);
+                    }
+                });
+            }
+
+            this._initReferenceTracking();
+            this.__setRectInfo();
+
+            this._documentMouseMove = function (e) {
+                if (!self.clickedInfo?.isMoving) return;
+                e.preventDefault();
+                self._onMove(e);
+            };
+            this._documentMouseUp = function (e) {
+                if (!self.clickedInfo?.isMoving) return;
+                self._onUp(e);
+                e.preventDefault();
+            };
+            this._documentTouchMove = function (e) {
+                if (!self.clickedInfo?.isMoving || !e.touches.length) return;
+                e.preventDefault();
+                self._onMove(e.touches[0]);
+            };
+            this._documentTouchEnd = function (e) {
+                if (!self.clickedInfo?.isMoving) return;
+                self._onUp(e.changedTouches?.[0], e.type === "touchcancel");
+            };
+            this._documentBlur = function () {
+                self._onUp(null, true);
+            };
         }
 
-        this._initReferenceTracking();
-
-        this.__setRectInfo();
-
-        let dragTargetEl = this.el
-        if (this.dragHandle)
-            dragTargetEl = this.dragHandle
-
-        this._documentMouseMove = function (e) {
-            if (!self.clickedInfo?.isMoving) return;
-            e.preventDefault();
-            self._onMove(e);
-        };
-        this._documentMouseUp = function (e) {
-            if (!self.clickedInfo?.isMoving) return;
-            self._onUp(e);
-            e.preventDefault();
-        };
-        this._documentTouchMove = function (e) {
-            if (!self.clickedInfo?.isMoving || !e.touches.length) return;
-            e.preventDefault();
-            self._onMove(e.touches[0]);
-        };
-        this._documentTouchEnd = function (e) {
-            if (!self.clickedInfo?.isMoving) return;
-            self._onUp(e.changedTouches?.[0], e.type === "touchcancel");
-        };
-        this._documentBlur = function () {
-            self._onUp(null, true);
-        };
-
-        dragTargetEl.addEventListener('touchstart', function (e) {
-            self._handlePointerDown(e);
-        })
-
-        dragTargetEl.addEventListener('mousedown', function (e) {
-            self._handlePointerDown(e);
-        })
+        if (!this.options.delegated && !this.startEventsInitialized) {
+            this.startEventsInitialized = true;
+            const dragTargetEl = this.dragHandle || this.el;
+            dragTargetEl.addEventListener('touchstart', (e) => this._handlePointerDown(e));
+            dragTargetEl.addEventListener('mousedown', (e) => this._handlePointerDown(e));
+        }
 
     },
 
     _handlePointerDown: function (event) {
         if (!event.__positionDelegated) {
-            const scope = this.el.closest("[droppable-query][draggable-query], [droppable-query][clonable-query]");
+            const scope = this.el.closest("[droppable-query][draggable-query], [droppable-query][clonable-query], [snappable-query][draggable-query], [snappable-query][clonable-query]");
             const draggableQuery = scope?.getAttribute("draggable-query");
             const clonableQuery = scope?.getAttribute("clonable-query");
             if ((draggableQuery && queryElements({ element: scope, selector: draggableQuery }).includes(this.el)) ||
                 (clonableQuery && queryElements({ element: scope, selector: clonableQuery }).includes(this.el)))
                 return;
             this.options.dragType = "draggable";
+            event.__positionHandled = true;
         }
         this._onDown(event.touches?.[0] || event, !!event.__positionDelegated);
         // Prevent native text selection only after this gesture qualifies as a drag.
@@ -172,13 +167,6 @@ position.prototype = {
         window.removeEventListener('blur', this._documentBlur);
     },
 
-    _isMovable() {
-        if (this.dragHandle)
-            return true
-        let width = this.rect.width;
-        return this.point.x > 0 && this.point.x < width && this.point.y > 0 && this.point.y < this.dragAreaHeight;
-    },
-
     place: function (anchor = this.el, options = {}) {
         if (!anchor?.getBoundingClientRect) return;
 
@@ -203,18 +191,14 @@ position.prototype = {
         }
 
         const placement = options.position || options.placement ||
-            this.el.getAttribute("position") ||
             anchor.getAttribute("position") ||
             "bottom-start";
         const offset = Number(options.offset ??
-            anchor.getAttribute("position-offset") ??
-            this.el.getAttribute("position-offset") ?? 8);
+            anchor.getAttribute("position-offset") ?? 8);
         const padding = Number(options.padding ??
-            anchor.getAttribute("position-padding") ??
-            this.el.getAttribute("position-padding") ?? 8);
+            anchor.getAttribute("position-padding") ?? 8);
         const collision = (options.collision ||
             anchor.getAttribute("position-collision") ||
-            this.el.getAttribute("position-collision") ||
             "flip shift").split(/[\s,]+/);
 
         const anchorRect = anchor.getBoundingClientRect();
@@ -311,14 +295,22 @@ position.prototype = {
         }
         this.dragScope = delegated && this.options.dragScope?.contains(this.el)
             ? this.options.dragScope
+            : null;
+        this.referenceQueryTargets = null;
+        const dropScope = this.dragScope?.hasAttribute("droppable-query")
+            ? this.dragScope
             : this.el.closest("[droppable-query]");
-        this.dropQuerySelector = this.dragScope?.getAttribute("droppable-query") || null;
+        const snapScope = this.dragScope?.hasAttribute("snappable-query")
+            ? this.dragScope
+            : this.el.closest("[snappable-query]");
+        this.dropQuerySelector = dropScope?.getAttribute("droppable-query") || null;
+        this.snapQuerySelector = snapScope?.getAttribute("snappable-query") || null;
+        this.referenceQuerySelector = this.dropQuerySelector || this.snapQuerySelector;
+        this.referenceQueryElement = this.dropQuerySelector ? dropScope : snapScope;
         this.dragType = this.options.dragType || "draggable";
         this.reference = null;
-        this._setActivePositionContainer(null);
+        this._setActiveDroppable(null);
         this._removePositionMarker();
-        this.referenceQuerySelector = null;
-        this.referenceQueryTargets = null;
         this.originalStyle = {
             present: this.el.hasAttribute("style"),
             value: this.el.getAttribute("style")
@@ -340,7 +332,7 @@ position.prototype = {
             cy: this.point.cy,
             w: this.rect.width,
             h: this.rect.height,
-            isMoving: this._isMovable(),
+            isMoving: true,
             boundStatus: this.boundStatus,
             isChangeStart: true
         }
@@ -353,6 +345,7 @@ position.prototype = {
             this.el.style.getPropertyValue("visibility"),
             this.el.style.getPropertyPriority("visibility")
         ];
+        this.dragOriginalOpacity = computed.opacity;
         const style = this.el.style;
         this.dragSizeVariables = {
             width: [style.getPropertyValue("--position-moving-width"), style.getPropertyPriority("--position-moving-width")],
@@ -375,6 +368,8 @@ position.prototype = {
         if (!this.clickedInfo?.isMoving || this.dragPreviewStarted) return;
         this.dragPreviewStarted = true;
         this.el.classList.add("position-moving");
+        if (this.dragType === "clonable")
+            this.el.classList.add("position-cloning");
         this.movingPosition = this.dragOriginPosition;
         const rect = this.dragOriginRect;
         this.el.style.setProperty("--position-moving-width", rect.width + "px");
@@ -409,8 +404,11 @@ position.prototype = {
         }
         ghost.classList.add("position-moving");
         ghost.classList.add("position-moving-preview");
+        ghost.classList.remove("position-cloning");
+        if (this.dragType === "clonable")
+            ghost.style.opacity = this.dragOriginalOpacity;
         ghost.setAttribute("aria-hidden", "true");
-        const activationAttributes = ["draggable", "position-target", "draggable-query", "clonable-query", "droppable-query", "draggable-value", "clonable-value", "position-reference"];
+        const activationAttributes = ["draggable", "position-target", "draggable-query", "clonable-query", "droppable-query", "snappable-query", "draggable-value", "clonable-value", "position-reference"];
         const previewElements = [ghost, ...ghost.querySelectorAll("*")];
         for (const element of previewElements) {
             element.removeAttribute("id");
@@ -454,6 +452,7 @@ position.prototype = {
 
     _finishMoving: function () {
         this.el.classList.remove("position-moving");
+        this.el.classList.remove("position-cloning");
         this.dragGhostEl?.remove();
         this.dragGhostEl = null;
         this.dragPreviewStarted = false;
@@ -501,11 +500,11 @@ position.prototype = {
 
     _usesPositionReference: function () {
         return this.el.hasAttribute("position-reference") ||
-            !!this.dropQuerySelector;
+            !!this.referenceQuerySelector;
     },
 
     _prepareReferenceTargets: function () {
-        const selector = this.dropQuerySelector;
+        const selector = this.referenceQuerySelector;
         if (selector === null) {
             this.referenceQuerySelector = selector;
             this.referenceQueryTargets = null;
@@ -515,7 +514,7 @@ position.prototype = {
 
         this.referenceQuerySelector = selector;
         this.referenceQueryTargets = new Set(queryElements({
-            element: this.dragScope || this.el,
+            element: this.referenceQueryElement || this.dragScope || this.el,
             selector
         }));
     },
@@ -543,11 +542,11 @@ position.prototype = {
         });
     },
 
-    _setActivePositionContainer: function (container) {
-        if (this.activePositionContainer === container) return;
-        this.activePositionContainer?.removeAttribute("position-container");
-        this.activePositionContainer = container || null;
-        this.activePositionContainer?.setAttribute("position-container", "");
+    _setActiveDroppable: function (container) {
+        if (this.activeDroppable === container) return;
+        this.activeDroppable?.removeAttribute("droppable");
+        this.activeDroppable = container || null;
+        this.activeDroppable?.setAttribute("droppable", "");
     },
 
     _updateReference: function (x, y, doc, hoveredElement) {
@@ -555,7 +554,7 @@ position.prototype = {
             candidate !== this.el && !this.el.contains(candidate)
         );
         if (candidate === this.el || this.el.contains(candidate)) candidate = null;
-        const hasContainerQuery = !!this.dropQuerySelector;
+        const hasContainerQuery = !!this.referenceQuerySelector;
         let element = candidate;
         let container = null;
         let isEmptyContainer = false;
@@ -565,7 +564,7 @@ position.prototype = {
             while (container && !this.referenceQueryTargets.has(container))
                 container = container.parentElement;
 
-            this._setActivePositionContainer(container);
+            this._setActiveDroppable(container);
 
             if (!container) {
                 element = null;
@@ -596,7 +595,7 @@ position.prototype = {
                 }
             }
         } else {
-            this._setActivePositionContainer(null);
+            this._setActiveDroppable(null);
         }
         if (!element) {
             this._removePositionMarker();
@@ -637,13 +636,33 @@ position.prototype = {
         const doc = reference.document || this.el.ownerDocument;
         if (!this.positionMarker || this.positionMarker.ownerDocument !== doc) {
             this._removePositionMarker();
-            this.positionMarker = doc.createElement("div");
-            this.positionMarker.setAttribute("position-marker", "");
-            this.positionMarker.style.width = this.el.getBoundingClientRect().width + "px";
-            this.positionMarker.style.height = this.el.getBoundingClientRect().height + "px";
-            this.positionMarker.style.boxSizing = "border-box";
-            this.positionMarker.style.flex = "none";
-            this.positionMarker.style.pointerEvents = "none";
+            const marker = this.el.cloneNode(true);
+            const activationAttributes = [
+                "draggable",
+                "draggable-query",
+                "clonable-query",
+                "droppable-query",
+                "snappable-query",
+                "draggable-value",
+                "clonable-value",
+                "position-query",
+                "position-target",
+                "position-reference",
+                "snapped",
+                "position-marker"
+            ];
+            for (const element of [marker, ...marker.querySelectorAll("*")]) {
+                element.removeAttribute("id");
+                element.removeAttribute("style");
+                element.removeAttribute("position-marker");
+                for (const attribute of activationAttributes)
+                    element.removeAttribute(attribute);
+                element.classList.remove("position-moving", "position-moving-preview", "position-cloning", "selectedPosition");
+            }
+            marker.setAttribute("position-marker", "");
+            marker.setAttribute("aria-hidden", "true");
+            marker.setAttribute("inert", "");
+            this.positionMarker = marker;
         }
 
         const marker = this.positionMarker;
@@ -667,7 +686,7 @@ position.prototype = {
         this._unbindDocumentDrag();
         if (!this.clickedInfo) {
             this._finishMoving();
-            this._setActivePositionContainer(null);
+            this._setActiveDroppable(null);
             this._removePositionMarker();
             return;
         }
@@ -676,36 +695,21 @@ position.prototype = {
             if (this._usesPositionReference())
                 this._updateReference(e.clientX, e.clientY, this.el.ownerDocument);
         }
-        if (this.clickedInfo.isMoving && !this.dropQuerySelector && !this.isParked) {
-            let p_w = this.el.parentNode.offsetWidth, p_h = this.el.parentNode.offsetHeight;
-            let snap_info = null;
-
-            if (this.__between(this.rect.top, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
-                this.__between(this.rect.left, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
-                this.__between(p_w - this.rect.right, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
-                this.__between(p_h - this.rect.bottom, this.NO_SNAP, this.FULLSCREEN_MARGIN)) {
-                snap_info = { x: 0, y: 0, w: '100%', h: '100%' }
-            } else if (this.__between(this.rect.top, this.NO_SNAP, this.SNAP_MARGIN)) {
-                snap_info = { x: 0, y: 0, w: '100%', h: '50%' }
-            } else if (this.__between(this.rect.left, this.NO_SNAP, this.SNAP_MARGIN)) {
-                snap_info = { x: 0, y: 0, w: '50%', h: '100%' }
-            } else if (this.__between(p_w - this.rect.right, this.NO_SNAP, this.SNAP_MARGIN)) {
-                snap_info = { x: '50%', y: 0, w: '50%', h: '100%' }
-            } else if (this.__between(p_h - this.rect.bottom, this.NO_SNAP, this.SNAP_MARGIN)) {
-                snap_info = { x: 0, y: '50%', w: '100%', h: '50%' }
-            }
+        if (this.clickedInfo.isMoving && !this.dropQuerySelector &&
+            !(this.snapQuerySelector && this.reference) && !this.isParked) {
+            const snap_info = this._getViewportSnapArea();
 
             if (snap_info && !this.isSnap) {
-                this.__setBound(this.el, snap_info.x, snap_info.y, snap_info.w, snap_info.h);
+                this._applyViewportSnap(snap_info);
                 this.preSnapped = { x: this.rect.x, y: this.rect.y, width: this.rect.width, height: this.rect.height };
                 this.isSnap = true;
             }
 
             let ghost_info = {
-                x: this.rect.x,
-                y: this.rect.y,
-                w: this.rect.width,
-                h: this.rect.height
+                x: this.point.clientX - this.clickedInfo.x,
+                y: this.point.clientY - this.clickedInfo.y,
+                w: this.dragOriginRect.width,
+                h: this.dragOriginRect.height
             }
 
             this._snapGhostProcess(ghost_info)
@@ -720,6 +724,8 @@ position.prototype = {
                 } else {
                     this._restoreOriginalStyle();
                 }
+            } else if (this.snapQuerySelector && !cancelled && this.reference) {
+                this._applyDrop();
             }
         }
 
@@ -729,13 +735,13 @@ position.prototype = {
             this.createEvent('element-moveend');
         }
 
-        this._setActivePositionContainer(null);
+        this._setActiveDroppable(null);
         this.clickedInfo = null;
     },
 
     _applyDrop: function () {
         const { element, position } = this.reference || {};
-        if (!element || !position || !this.dropQuerySelector) return false;
+        if (!element || !position || !this.referenceQuerySelector) return false;
         if (element === this.el || this.el.contains(element)) return false;
 
         const mode = this.dragType === "clonable" ? "clonable" : "draggable";
@@ -766,6 +772,10 @@ position.prototype = {
         }
 
         if (!inserted) return false;
+        if (this.snapQuerySelector && mode === "draggable" && insertValue === this.el) {
+            this.el.removeAttribute("style");
+            this.el.setAttribute("snapped", "");
+        }
         if (mode === "draggable" && hasValue && value !== this.el)
             this.el.remove();
 
@@ -835,6 +845,46 @@ position.prototype = {
         return x >= min && x <= max;
     },
 
+    _getViewportSnapArea: function () {
+        if (!this.clickedInfo || !this.dragOriginRect) return null;
+        const doc = this.el.ownerDocument;
+        const view = doc.defaultView;
+        const width = doc.documentElement.clientWidth || view.innerWidth;
+        const height = doc.documentElement.clientHeight || view.innerHeight;
+        const left = this.point.clientX - this.clickedInfo.x;
+        const top = this.point.clientY - this.clickedInfo.y;
+        const right = width - left - this.dragOriginRect.width;
+        const bottom = height - top - this.dragOriginRect.height;
+
+        if (this.__between(top, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
+            this.__between(left, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
+            this.__between(right, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
+            this.__between(bottom, this.NO_SNAP, this.FULLSCREEN_MARGIN))
+            return { x: 0, y: 0, w: width, h: height };
+        if (this.__between(top, this.NO_SNAP, this.SNAP_MARGIN))
+            return { x: 0, y: 0, w: width, h: height / 2 };
+        if (this.__between(left, this.NO_SNAP, this.SNAP_MARGIN))
+            return { x: 0, y: 0, w: width / 2, h: height };
+        if (this.__between(right, this.NO_SNAP, this.SNAP_MARGIN))
+            return { x: width / 2, y: 0, w: width / 2, h: height };
+        if (this.__between(bottom, this.NO_SNAP, this.SNAP_MARGIN))
+            return { x: 0, y: height / 2, w: width, h: height / 2 };
+        return null;
+    },
+
+    _applyViewportSnap: function ({ x, y, w, h }) {
+        const style = this.el.style;
+        style.position = "fixed";
+        style.removeProperty("inset");
+        style.left = x + "px";
+        style.top = y + "px";
+        style.right = "auto";
+        style.bottom = "auto";
+        style.width = w + "px";
+        style.height = h + "px";
+        style.boxSizing = "border-box";
+    },
+
     __animate: function () {
         let c_info = this.clickedInfo;
 
@@ -845,27 +895,19 @@ position.prototype = {
              * Ghost Process
              **/
 
-            let p_w = this.el.parentNode.offsetWidth, p_h = this.el.parentNode.offsetHeight;
-            let ghost_info = null;
+            const snapArea = this._getViewportSnapArea();
+            const ghost_info = snapArea
+                ? { ...snapArea, type: "show" }
+                : {
+                    x: this.point.clientX - this.clickedInfo.x,
+                    y: this.point.clientY - this.clickedInfo.y,
+                    w: this.dragOriginRect.width,
+                    h: this.dragOriginRect.height,
+                    type: "hide"
+                };
 
-            if (this.__between(this.rect.top, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
-                this.__between(this.rect.left, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
-                this.__between(p_w - this.rect.right, this.NO_SNAP, this.FULLSCREEN_MARGIN) ||
-                this.__between(p_h - this.rect.bottom, this.NO_SNAP, this.FULLSCREEN_MARGIN)) {
-                ghost_info = { x: 0, y: 0, w: p_w, h: p_h, type: "show" }
-            } else if (this.__between(this.rect.top, this.NO_SNAP, this.SNAP_MARGIN)) {
-                ghost_info = { x: 0, y: 0, w: p_w, h: p_h / 2, type: "show" }
-            } else if (this.__between(this.rect.left, this.NO_SNAP, this.SNAP_MARGIN)) {
-                ghost_info = { x: 0, y: 0, w: p_w / 2, h: p_h, type: "show" }
-            } else if (this.__between(p_w - this.rect.right, this.NO_SNAP, this.SNAP_MARGIN)) {
-                ghost_info = { x: p_w / 2, y: 0, w: p_w / 2, h: p_h, type: "show" }
-            } else if (this.__between(p_h - this.rect.bottom, this.NO_SNAP, this.SNAP_MARGIN)) {
-                ghost_info = { x: 0, y: p_h / 2, w: p_w, h: p_h / 2, type: "show" }
-            } else {
-                ghost_info = { x: this.rect.left, y: this.rect.top, w: this.rect.width, h: this.rect.height, type: "hide" }
-            }
-
-            if (ghost_info && !this.dropQuerySelector && !this.isParked && !this.isSnap) {
+            if (ghost_info && !this.dropQuerySelector &&
+                !(this.snapQuerySelector && this.reference) && !this.isParked && !this.isSnap) {
                 this._snapGhostProcess(ghost_info)
             }
 
@@ -910,13 +952,16 @@ position.prototype = {
     },
 
     _createSnapGhost: function (ghostClass) {
-        let node = document.createElement("div");
+        const doc = this.el.ownerDocument;
+        let node = doc.createElement("div");
         if (!ghostClass) {
             ghostClass = "snap-ghost";
         }
 
         node.classList.add(ghostClass);
-        this.container.appendChild(node);
+        node.style.position = "fixed";
+        node.style.pointerEvents = "none";
+        (doc.body || doc.documentElement).appendChild(node);
         this.snapGhostEl = node;
     },
 

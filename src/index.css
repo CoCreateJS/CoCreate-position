@@ -21,11 +21,19 @@
   cursor: move;
 }
 
-.position-moving {
+.position-moving:not(.position-cloning) {
 	position: fixed !important;
 	width: var(--position-moving-width) !important;
 	height: var(--position-moving-height) !important;
+	min-width: var(--position-moving-width) !important;
+	min-height: var(--position-moving-height) !important;
+	max-width: var(--position-moving-width) !important;
+	max-height: var(--position-moving-height) !important;
 	box-sizing: border-box !important;
+}
+
+.position-cloning {
+	opacity: 0.6;
 }
 
 .position-moving-preview {
