@@ -1,16 +1,19 @@
 {
   "name": "@cocreate/position",
   "version": "1.16.0",
-  "description": "Make any element draggable and movable. Customizable via attributes, great for popups, alerts, multitasking and displaying multiple views.",
+  "description": "Declarative DOM positioning, dragging, snapping, and drag-and-drop for web interfaces.",
   "keywords": [
-    "position",
-    "low-code",
-    "realtime",
-    "realtime-framework",
-    "collaboration",
-    "shared-editing",
-    "html5-framework",
-    "javascript-framework"
+    "positioning",
+    "drag-and-drop",
+    "draggable",
+    "snapping",
+    "floating-ui",
+    "popover",
+    "tooltip",
+    "iframe",
+    "declarative",
+    "dom",
+    "cocreate"
   ],
   "publishConfig": {
     "access": "public"
@@ -22,12 +25,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://gitlab.com/cocreatejs/CoCreate-position.git"
+    "url": "git+https://github.com/CoCreateJS/CoCreate-position.git"
   },
   "author": "CoCreate LLC",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/CoCreate-app/CoCreate-position/issues"
+    "url": "https://github.com/CoCreateJS/CoCreate-position/issues"
   },
   "homepage": "https://cocreate.app/docs/position",
   "funding": {

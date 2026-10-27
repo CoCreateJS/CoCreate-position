@@ -1,169 +1,177 @@
-# CoCreate-position
+# CoCreate Position
 
-Make any element draggable and movable. Customizable via HTML5 attributes or Javascript, great for creating moveable popups, alerts, etc. Take it for a spin in our [playground!](https://cocreate.app/docs/position)
+Declarative DOM positioning, dragging, snapping, and drag-and-drop for web
+interfaces. Configure interactions with HTML attributes, or use the positioning
+API from JavaScript. Position loads its drag, snap, and placement features on
+demand when their attributes are used.
 
-![minified](https://img.badgesize.io/https://cdn.cocreate.app/position/latest/CoCreate-position.min.js?style=flat-square&label=minified&color=orange)
-![gzip](https://img.badgesize.io/https://cdn.cocreate.app/position/latest/CoCreate-position.min.js?compression=gzip&style=flat-square&label=gzip&color=yellow)
-![brotli](https://img.badgesize.io/https://cdn.cocreate.app/position/latest/CoCreate-position.min.js?compression=brotli&style=flat-square&label=brotli)
-![GitHub latest release](https://img.shields.io/github/v/release/CoCreate-app/CoCreate-position?style=flat-square)
-![License](https://img.shields.io/github/license/CoCreate-app/CoCreate-position?style=flat-square)
-![Hiring](https://img.shields.io/static/v1?style=flat-square&label=&message=Hiring&color=blueviolet)
+[Documentation and demo](https://cocreate.app/docs/position) ·
+[GitHub repository](https://github.com/CoCreateJS/CoCreate-position)
 
-![CoCreate-position](https://cdn.cocreate.app/docs/CoCreate-position.gif)
+![Minified size](https://img.badgesize.io/https://cdn.cocreate.app/position/latest/CoCreate-position.min.js?style=flat-square&label=minified&color=orange)
+![Gzip size](https://img.badgesize.io/https://cdn.cocreate.app/position/latest/CoCreate-position.min.js?compression=gzip&style=flat-square&label=gzip&color=yellow)
+![GitHub release](https://img.shields.io/github/v/release/CoCreateJS/CoCreate-position?style=flat-square)
+![License](https://img.shields.io/github/license/CoCreateJS/CoCreate-position?style=flat-square)
 
-## [Docs & Demo](https://cocreate.app/docs/position)
+![CoCreate Position demo](https://cdn.cocreate.app/docs/CoCreate-position.gif)
 
-For a complete guide and working demo refer to the [doumentation](https://cocreate.app/docs/position)
+## Install
 
-## CDN
+### CDN
 
 ```html
+<link rel="stylesheet" href="https://cdn.cocreate.app/position/latest/CoCreate-position.min.css">
 <script src="https://cdn.cocreate.app/position/latest/CoCreate-position.min.js"></script>
 ```
 
-```html
-<script src="https://cdn.cocreate.app/position/latest/CoCreate-position.min.css"></script>
+### npm
+
+```sh
+npm install @cocreate/position
 ```
 
-## NPM
+### Yarn
 
-```shell
-$ npm i @cocreate/position
+```sh
+yarn add @cocreate/position
 ```
 
-## yarn
+The JavaScript entry imports Position's stylesheet. If your bundler extracts
+CSS, make sure the generated stylesheet is included in your page.
 
-```shell
-$ yarn install @cocreate/position
-```
+## Place an element relative to a target
 
-# Table of Contents
-
-- [Table of Contents](#table-of-contents)
-- [Announcements](#announcements)
-- [Roadmap](#roadmap)
-- [How to Contribute](#how-to-contribute)
-- [About](#about)
-- [License](#license)
-
-<a name="announcements"></a>
-
-# Announcements
-
-All updates to this library are documented in our [CHANGELOG](https://github.com/CoCreate-app/CoCreate-position/blob/master/CHANGELOG.md) and [releases](https://github.com/CoCreate-app/CoCreate-position/releases). You may also subscribe to email for releases and breaking changes.
-
-<a name="roadmap"></a>
-
-# Roadmap
-
-If you are interested in the future direction of this project, please take a look at our open [issues](https://github.com/CoCreate-app/CoCreate-position/issues) and [pull requests](https://github.com/CoCreate-app/CoCreate-position/pulls). We would love to hear your feedback.
-
-## Programmatic positioning targets
-
-Add `position-query`, `position-element`, and placement settings to a click
-trigger. `position-query` selects the anchor; `position-element` selects the
-element to position:
+Use `position-query` to select the anchor and `position-element` to select the
+floating element. Put these attributes on the trigger or container that owns
+the interaction:
 
 ```html
-<button position-query="$this" position-element="$top #popover" position="top right">Open</button>
-<div id="popover">Positioned element</div>
+<button
+  position-query="$this"
+  position-element="$top #popover"
+  position="bottom left"
+  position-offset="8"
+>
+  Open popover
+</button>
+
+<div id="popover" hidden>Popover content</div>
 ```
 
-Both queries are resolved when the trigger is clicked. `position`,
-`position-offset`, `position-padding`, and `position-collision` are read from the
-trigger. If `position-query` is omitted, the trigger itself is the anchor.
-When `position-query` includes `:hover`, Position also tracks pointer movement
-and repositions against the deepest hovered match. Same-origin iframe documents
-can be queried with `$contentDocument`.
+Position resolves both queries when the trigger is activated. If
+`position-query` is omitted, the trigger is the anchor. Placement can be
+`top`, `bottom`, `left`, or `right`, with `start`, `center`, or `end` alignment
+(for example, `top right`). `position-offset` controls the gap from the anchor;
+`position-padding` sets the collision boundary inset; and
+`position-collision="flip shift"` controls collision handling. The defaults
+are an 8px offset and padding, with flipping and shifting enabled.
 
-## Moving and container drag and drop
+The floating element also receives a JavaScript `position` API when initialized:
 
-`draggable` lets an element move freely. For container drag and drop, place
-`draggable-query` or `clonable-query`
-and `droppable-query` together on a parent scope. The source query selects
-descendants that can be moved or cloned; the drop query selects their allowed
-destinations. A scope can define both source queries. If an element matches both,
-`clonable-query` takes precedence. Queries support CoCreate operators, including
-same-origin iframe traversal.
-
-Use `snappable-query` when a draggable element should snap into CSS-defined
-containers. It selects the snap containers independently from `droppable-query`.
-After a matching snap inserts the draggable element, Position marks that element
-with `snapped`:
-
-```html
-<div draggable snappable-query="$top .snap-area[]">Move me into a snap area</div>
+```js
+popover.position.place(anchor, { position: "bottom-start", offset: 8 });
+popover.position.unplace();
 ```
 
+## Follow hovered elements
+
+Add `:hover` to the anchor query to position a toolbar or popup against the
+deepest hovered match:
+
 ```html
-<div draggable-query=".card[]" droppable-query="$top .board[]">
-    <div class="card">A card</div>
+<div
+  position-query="*:hover[]"
+  position-element="$top #format-toolbar"
+  position="top left"
+>
+  <!-- content to inspect -->
 </div>
+<div id="format-toolbar" hidden>Formatting actions</div>
 ```
 
-`draggable-query` moves the matched source element. `clonable-query` leaves the
-source in place and inserts a deep clone. If no matching drop target is under
-the pointer, the operation is canceled. A matching container with no element
-children uses `afterbegin`; otherwise insertion is `beforebegin` or `afterend`
-relative to a direct child.
+For a same-origin iframe, query its document with `$contentDocument`:
 
-Add `draggable-value` or `clonable-value` to a matched source to provide a custom
-drop value. Position resolves the attribute on drop: an element value is
-inserted as an element, and a string value is inserted as HTML. Without a custom
-value, Position moves or clones the source element according to its query. When
-`draggable-value` supplies a different value, the source is removed after a
-successful drop; a `clonable-value` leaves its source in place.
+```html
+<iframe
+  position-query="$contentDocument *:hover[]"
+  position-element="$top #format-toolbar"
+></iframe>
+```
 
-Add `position-reference` to expose the element and insertion point under the
-pointer while moving. Listen for `element-position-reference`; its
-`detail.reference` contains the referenced `element`, its `container` when
-scoped, the insertion position, pointer coordinates, and the owning document.
-Position clears the reference when the pointer leaves all matching containers.
-The matching container receives a temporary `droppable` attribute while active;
-Position moves that attribute to the newly hovered container and removes it when
-the interaction ends.
-Position also inserts a clone of the moving element without inline styles at the
-current insertion point. It preserves classes and content so container CSS can
-size and arrange the marker, follows changes to the reference, and is removed
-when the drag ends.
-The hovered element is also available as `document.hoveredElement` and
-`document.documentElement.hoveredElement`. In a same-origin iframe, those
-properties refer to the element inside the frame, and the iframe element's
-`hoveredElement` property refers to that same inner element. In the parent
-document, the hovered element remains the iframe itself.
+Position tracks pointer movement inside same-origin frames and maps the target
+geometry into the parent document. Cross-origin frame contents cannot be
+queried by the parent page due to browser security boundaries.
 
-## Drag preview
+## Drag elements
 
-While an element is moving, Position adds the `position-moving` class and moves
-a visual preview that follows the pointer. A moved element is hidden during the
-drag and restored on release. A clonable source remains in place with the
-`position-cloning` class and default reduced opacity. Style `.position-moving`,
-`.position-cloning`, or `.position-moving-preview` to customize them. The drag
-preview is separate from the snap preview and the `position-marker` insertion
-placeholder.
+Add `draggable` to let a user move an element directly:
 
-<a name="about"></a>
+```html
+<div draggable>Drag me</div>
+```
 
-# About
+For scoped move or clone operations, put the source query and drop query on a
+shared container. A `clonable-query` takes precedence if both source queries
+match:
 
-CoCreate-position is guided and supported by the CoCreate Developer Experience Team.
+```html
+<section
+  draggable-query=".card[]"
+  clonable-query=".copy-card[]"
+  droppable-query=".board[]"
+>
+  <div class="board">Drop zone</div>
+  <article class="card">Move this card</article>
+  <article class="copy-card">Clone this card</article>
+</section>
+```
 
-Please Email the Developer Experience Team [here](mailto:develop@cocreate.app) in case of any queries.
+`draggable-query` moves the matching source; `clonable-query` leaves the source
+in place and inserts a deep clone. If the pointer is not over a matching drop
+target, the operation is canceled. Drop targets can be selected across
+same-origin iframe documents using CoCreate query operators.
 
-CoCreate-position is maintained and funded by CoCreate. The names and logos for CoCreate are trademarks of CoCreate, LLC.
+`draggable-value` and `clonable-value` let a source provide a custom drop value.
+Position inserts an element value as an element and a string value as HTML. A
+custom `draggable-value` is removed from its source after a successful drop;
+`clonable-value` leaves its source in place.
 
-<a name="contribute"></a>
+## Snap to containers and inspect insertion points
 
-# How to Contribute
+Use `snappable-query` to select snap destinations independently of
+`droppable-query`:
 
-We encourage contribution to our libraries (you might even score some nifty swag), please see our [CONTRIBUTING](https://github.com/CoCreate-app/CoCreate-position/blob/master/CONTRIBUTING.md) guide for details.
+```html
+<div draggable snappable-query="$top .snap-area[]">Drag into a snap area</div>
+<div class="snap-area"></div>
+```
 
-We want this library to be community-driven, and CoCreate led. We need your help to realize this goal. To help make sure we are building the right things in the right order, we ask that you create [issues](https://github.com/CoCreate-app/CoCreate-position/issues) and [pull requests](https://github.com/CoCreate-app/CoCreate-position/pulls) or merely upvote or comment on existing issues or pull requests.
+After a successful snap, the moved element receives the `snapped` attribute.
+For drag-and-drop insertion feedback, add `position-reference` to the source
+scope. Position emits `element-position-reference` with a `detail.reference`
+object containing the hovered element, container, insertion position, pointer
+coordinates, and owning document. The active drop container temporarily
+receives `droppable`; a `position-marker` preview shows the insertion point.
 
-We appreciate your continued support, thank you!
+During dragging, Position applies `position-moving` to a moved element or
+`position-cloning` to a clone source. The pointer-following preview uses
+`position-moving-preview`. These classes and the marker can be styled by the
+application; default styles are included in the package CSS.
 
+The current hovered node is also exposed as `document.hoveredElement` and
+`document.documentElement.hoveredElement`. For same-origin iframe targets, the
+frame document exposes its inner hovered node, while the parent document
+continues to expose the iframe element.
 
-<a name="license"></a>
-# License
+## Links
 
-[The MIT License (MIT)](https://github.com/CoCreate-app/CoCreate-position/blob/master/LICENSE)
+- [Documentation and demo](https://cocreate.app/docs/position)
+- [Changelog](https://github.com/CoCreateJS/CoCreate-position/blob/main/CHANGELOG.md)
+- [Issues](https://github.com/CoCreateJS/CoCreate-position/issues)
+- [Contributing](https://github.com/CoCreateJS/CoCreate-position/blob/main/CONTRIBUTING.md)
+- [MIT license](https://github.com/CoCreateJS/CoCreate-position/blob/main/LICENSE)
+
+## About
+
+CoCreate Position is maintained by [CoCreate](https://cocreate.app). Questions
+can be sent to [develop@cocreate.app](mailto:develop@cocreate.app).
