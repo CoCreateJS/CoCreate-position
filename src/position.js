@@ -4,6 +4,8 @@ import { dispatch } from "./helpers/events.js";
 
 const placementStates = new WeakMap();
 const triggers = new WeakSet();
+const hoverTriggers = new WeakSet();
+const triggerElements = new WeakMap();
 
 export function initPositionTargets(elements) {
 	for (const element of elements) attachPlacement(element);
@@ -45,7 +47,8 @@ function place(element, anchor, options = {}) {
 	const offset = Number(options.offset ?? attribute("position-offset", 8));
 	const padding = Number(options.padding ?? attribute("position-padding", 8));
 	const collision = (options.collision || attribute("position-collision", "flip shift")).split(/[\s,]+/);
-	const anchorRect = anchor.getBoundingClientRect();
+	const anchorRect = getRectInDocument(anchor, element.ownerDocument);
+	if (!anchorRect) return;
 	const elementRect = element.getBoundingClientRect();
 	const container = element.parentElement;
 	const parentRect = container?.getBoundingClientRect() || { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
@@ -107,6 +110,109 @@ function place(element, anchor, options = {}) {
 	dispatch(element, "element-positioned");
 }
 
+function getRectInDocument(element, targetDocument) {
+	let rect = element.getBoundingClientRect();
+	let document = element.ownerDocument;
+	while (document !== targetDocument) {
+		const frame = document.defaultView?.frameElement;
+		if (!frame) return null;
+		const frameRect = frame.getBoundingClientRect();
+		const scaleX = frame.offsetWidth ? frameRect.width / frame.offsetWidth : 1;
+		const scaleY = frame.offsetHeight ? frameRect.height / frame.offsetHeight : 1;
+		rect = {
+			left: frameRect.left + (frame.clientLeft + rect.left) * scaleX,
+			top: frameRect.top + (frame.clientTop + rect.top) * scaleY,
+			right: frameRect.left + (frame.clientLeft + rect.right) * scaleX,
+			bottom: frameRect.top + (frame.clientTop + rect.bottom) * scaleY,
+			width: rect.width * scaleX,
+			height: rect.height * scaleY
+		};
+		document = frame.ownerDocument;
+	}
+	return rect;
+}
+
+function deepest(elements) {
+	return elements.reduce((current, element) =>
+		!current || current.contains(element) ? element : current, null);
+}
+
+function placeFromTrigger(trigger) {
+	const anchorQuery = trigger.getAttribute("position-query");
+	const elementQuery = trigger.getAttribute("position-element");
+	const anchors = anchorQuery
+		? queryElements({ element: trigger, selector: anchorQuery })
+		: [trigger];
+	const anchor = anchorQuery?.includes(":hover") ? deepest(anchors) : anchors[0];
+	const elements = elementQuery
+		? queryElements({ element: trigger, selector: elementQuery })
+		: [];
+	const previousElements = triggerElements.get(trigger) || new Set();
+	const currentElements = new Set(elements);
+	for (const element of previousElements) {
+		if (!currentElements.has(element)) clearPlacement(element);
+	}
+	triggerElements.set(trigger, currentElements);
+	if (!anchor || !elementQuery) {
+		for (const element of currentElements) clearPlacement(element);
+		return;
+	}
+	const options = {};
+	for (const [option, attribute] of [
+		["position", "position"],
+		["offset", "position-offset"],
+		["padding", "position-padding"],
+		["collision", "position-collision"]
+	]) {
+		if (trigger.hasAttribute(attribute)) options[option] = trigger.getAttribute(attribute);
+	}
+	for (const element of elements) {
+		attachPlacement(element);
+		element.hidden = false;
+		element.position.place(anchor, options);
+	}
+}
+
+function clearPlacement(element) {
+	if (!element) return;
+	element.position?.unplace?.();
+	element.hidden = true;
+}
+
+function initHoverTrigger(trigger) {
+	if (hoverTriggers.has(trigger) || !trigger.getAttribute("position-query")?.includes(":hover")) return;
+	hoverTriggers.add(trigger);
+	const update = () => {
+		if (trigger.positionHoverFrame) return;
+		trigger.positionHoverFrame = trigger.ownerDocument.defaultView.requestAnimationFrame(() => {
+			trigger.positionHoverFrame = null;
+			placeFromTrigger(trigger);
+		});
+	};
+	if (trigger.tagName === "IFRAME") {
+		const attachFrame = () => {
+			try {
+				const doc = trigger.contentDocument;
+				if (!doc || trigger.positionHoverDocument === doc) return;
+				trigger.positionHoverDocument = doc;
+				doc.addEventListener("mouseover", update);
+				doc.addEventListener("mousemove", update);
+				doc.addEventListener("mouseout", update);
+			} catch {
+				// Cross-origin iframe contents cannot be inspected.
+			}
+		};
+		attachFrame();
+		trigger.addEventListener("load", attachFrame);
+		trigger.addEventListener("mouseleave", update);
+	} else {
+		trigger.addEventListener("mouseover", update);
+		trigger.addEventListener("mousemove", update);
+		trigger.addEventListener("mouseout", update);
+		trigger.addEventListener("mouseleave", update);
+	}
+}
+
 function unplace(element) {
 	const state = placementStates.get(element);
 	if (!state?.anchor || !state.update) return;
@@ -120,27 +226,14 @@ function unplace(element) {
 
 function initTriggers(elements) {
 	for (const trigger of elements) {
-		if (triggers.has(trigger)) continue;
-		triggers.add(trigger);
-		trigger.addEventListener("click", () => {
-			trigger.ownerDocument.defaultView.requestAnimationFrame(() => {
-				const targets = queryElements({ element: trigger, prefix: "position" });
-				const options = {};
-				for (const [option, attribute] of [
-					["position", "position"],
-					["offset", "position-offset"],
-					["padding", "position-padding"],
-					["collision", "position-collision"]
-				]) {
-					if (trigger.hasAttribute(attribute)) options[option] = trigger.getAttribute(attribute);
-				}
-				for (const target of targets) {
-					attachPlacement(target);
-					target.hidden = false;
-					target.position.place(trigger, options);
-				}
+		if (!trigger.getAttribute("position-element")?.trim()) continue;
+		if (!triggers.has(trigger)) {
+			triggers.add(trigger);
+			trigger.addEventListener("click", () => {
+				trigger.ownerDocument.defaultView.requestAnimationFrame(() => placeFromTrigger(trigger));
 			});
-		});
+		}
+		initHoverTrigger(trigger);
 	}
 }
 
@@ -150,24 +243,25 @@ export function init() {
 
 export function refresh(node) {
 	if (node?.nodeType !== 1) return;
-	if (node.matches("[position-target]")) attachPlacement(node);
-	initPositionTargets(node.querySelectorAll("[position-target]"));
-	initTriggers(node.matches("[position-query]") ? [node] : []);
-	initTriggers(node.querySelectorAll("[position-query]"));
+	if (node.hasAttribute("position-element") && !node.getAttribute("position-element")?.trim())
+		attachPlacement(node);
+	initTriggers(node.matches("[position-element]") ? [node] : []);
+	initTriggers(node.querySelectorAll("[position-element]"));
+	for (const element of node.querySelectorAll('[position-element=""]')) attachPlacement(element);
 }
 
 observer.init({
 	name: "positionPlacementAddedNodes",
 	types: ["addedNodes"],
-	selector: "[position-target], [position-query]",
+	selector: "[position-query], [position-element]",
 	callback: mutation => refresh(mutation.target)
 });
 
 observer.init({
 	name: "positionPlacementAttributes",
 	types: ["attributes"],
-	attributeFilter: ["position-target", "position-query", "position", "position-offset", "position-padding", "position-collision"],
-	selector: "[position-target], [position-query]",
+	attributeFilter: ["position-query", "position-element", "position", "position-offset", "position-padding", "position-collision"],
+	selector: "[position-query], [position-element]",
 	callback: mutation => refresh(mutation.target)
 });
 

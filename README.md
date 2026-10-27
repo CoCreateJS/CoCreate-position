@@ -60,18 +60,21 @@ If you are interested in the future direction of this project, please take a loo
 
 ## Programmatic positioning targets
 
-Add `position-query` and placement settings to a click trigger. Its query selects
-the element to position, and the trigger itself is the reference point:
+Add `position-query`, `position-element`, and placement settings to a click
+trigger. `position-query` selects the anchor; `position-element` selects the
+element to position:
 
 ```html
-<button position-query="$top #popover" position="top right">Open</button>
+<button position-query="$this" position-element="$top #popover" position="top right">Open</button>
 <div id="popover">Positioned element</div>
 ```
 
-The query is resolved when the trigger is clicked. `position`, `position-offset`,
-`position-padding`, and `position-collision` are read from the trigger. No separate
-anchor attribute is needed. `position-target` remains available for elements
-positioned directly through `element.position.place(anchor)`.
+Both queries are resolved when the trigger is clicked. `position`,
+`position-offset`, `position-padding`, and `position-collision` are read from the
+trigger. If `position-query` is omitted, the trigger itself is the anchor.
+When `position-query` includes `:hover`, Position also tracks pointer movement
+and repositions against the deepest hovered match. Same-origin iframe documents
+can be queried with `$contentDocument`.
 
 ## Moving and container drag and drop
 

@@ -12,11 +12,18 @@ const scopeSelector = [
 const hoveredDocuments = new WeakSet();
 
 function getEditorDetails(element) {
-	return element?.editorDetails || element?.editorPosition;
+	const current = element?.editor;
+	return typeof current?.getStart === "function" ? current : element?.editorDetails;
 }
 
 function getEditorSourceRange(element, editorElement, source) {
 	const details = getEditorDetails(element);
+	if (typeof details?.getOuterRange === "function") {
+		if (details.element !== editorElement) return null;
+		const range = details.getOuterRange();
+		return range && Number.isInteger(range.start) && Number.isInteger(range.end) &&
+			range.start >= 0 && range.end >= range.start && range.end <= source.length ? range : null;
+	}
 	if (details?.editorElement !== editorElement ||
 		![details.start, details.contentStart, details.contentEnd, details.end].every(Number.isInteger) ||
 		details.start < 0 || details.start > details.contentStart ||
@@ -28,23 +35,29 @@ function getEditorSourceRange(element, editorElement, source) {
 
 async function insertIntoEditor({ instance, target, position, value, hasValue, mode }) {
 	const details = getEditorDetails(target);
-	const editorElement = details?.editorElement;
+	const editorElement = details?.element || details?.editorElement;
 	if (!editorElement || typeof editorElement.editor?.updateText !== "function" ||
-		typeof editorElement.value !== "string") return false;
+		(typeof editorElement.editor?.getSource !== "function" && typeof editorElement.value !== "string")) return false;
 
-	const source = editorElement.value;
-	const targetBoundary = {
-		beforebegin: "start",
-		afterbegin: "contentStart",
-		beforeend: "contentEnd",
-		afterend: "end"
-	}[position];
-	const start = details[targetBoundary];
+	const source = typeof editorElement.editor.getSource === "function"
+		? editorElement.editor.getSource() : editorElement.value;
+	if (typeof source !== "string") return false;
+	const insertionPoint = details.getInsertionPoint?.(position);
+	const outerRange = details.getOuterRange?.();
+	const contentRange = details.getContentRange?.();
+	const targetBoundary = insertionPoint ? insertionPoint.editor.getStart() + insertionPoint.offset : ({
+		beforebegin: outerRange?.start ?? details.start,
+		afterbegin: contentRange?.start ?? details.contentStart,
+		beforeend: contentRange?.end ?? details.contentEnd,
+		afterend: outerRange?.end ?? details.end
+	})[position];
+	const start = targetBoundary;
 	if (!Number.isInteger(start) || start < 0 || start > source.length) return false;
 
 	const sourceDetails = mode === "draggable" ? getEditorDetails(instance.el) : null;
-	const sourceEditor = sourceDetails?.editorElement;
-	const sourceText = typeof sourceEditor?.value === "string" ? sourceEditor.value : null;
+	const sourceEditor = sourceDetails?.element || sourceDetails?.editorElement;
+	const sourceText = typeof sourceEditor?.editor?.getSource === "function"
+		? sourceEditor.editor.getSource() : typeof sourceEditor?.value === "string" ? sourceEditor.value : null;
 	const sourceRange = sourceText === null ? null : getEditorSourceRange(instance.el, sourceEditor, sourceText);
 	if (sourceEditor && !sourceRange) return false;
 	const movingSource = mode === "draggable" && !hasValue && sourceEditor === editorElement && !!sourceRange;
@@ -75,7 +88,9 @@ async function insertIntoEditor({ instance, target, position, value, hasValue, m
 		return true;
 	}
 
-	await editorElement.editor.updateText({ start, length: 0, value: insertedText });
+	if (insertionPoint) {
+		await insertionPoint.editor.updateText({ start: insertionPoint.offset, length: 0, value: insertedText });
+	} else await editorElement.editor.updateText({ start, length: 0, value: insertedText });
 	if (mode === "draggable") {
 		if (sourceEditor && sourceRange)
 			await sourceEditor.editor.updateText({
@@ -99,6 +114,16 @@ function trackHoveredDocument(doc) {
 	};
 	doc.addEventListener("mouseover", update);
 	doc.addEventListener("mousemove", update);
+}
+
+function mapFramePoint(frame, x, y) {
+	const rect = frame.getBoundingClientRect();
+	const scaleX = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
+	const scaleY = frame.offsetHeight ? rect.height / frame.offsetHeight : 1;
+	return {
+		x: rect.left + (frame.clientLeft + x) * scaleX,
+		y: rect.top + (frame.clientTop + y) * scaleY
+	};
 }
 
 const snappableMethods = {
@@ -128,16 +153,21 @@ const snappableMethods = {
 		this._removePositionMarker();
 	},
 
-	_updateSnappableReference(x, y, doc) {
+	_updateSnappableReference(x, y, doc, hoveredElement) {
 		if (!this._usesPositionReference()) return;
 		this._prepareReferenceTargets();
 		this._initReferenceTracking();
-		this._updateReference(x, y, doc);
+		this._updateReference(x, y, doc, hoveredElement);
 	},
 
-	_finishSnappableReference(event) {
+	_finishSnappableReference(event, reference) {
 		if (event && this._usesPositionReference())
-			this._updateReference(event.clientX, event.clientY, this.el.ownerDocument);
+			this._updateReference(
+				reference?.x ?? event.clientX,
+				reference?.y ?? event.clientY,
+				reference?.document ?? this.el.ownerDocument,
+				reference?.element
+			);
 	},
 
 	_completeSnappableDrop(cancelled) {
@@ -213,19 +243,41 @@ const snappableMethods = {
 		if (frame.positionReferenceDocument !== frameDocument) {
 			frame.positionReferenceDocument = frameDocument;
 			trackHoveredDocument(frameDocument);
-			const update = event => frame.dispatchEvent(new CustomEvent("position-reference-move", {
-				detail: { element: event.target, x: event.clientX, y: event.clientY, document: frameDocument }
-			}));
+			const update = event => {
+				const pointer = event.changedTouches?.[0] || event;
+				frame.dispatchEvent(new CustomEvent("position-reference-move", {
+					detail: { type: event.type, element: event.target, x: pointer.clientX, y: pointer.clientY, document: frameDocument, originalEvent: event }
+				}));
+			};
 			frameDocument.addEventListener("mouseover", update);
 			frameDocument.addEventListener("mousemove", update);
+			frameDocument.addEventListener("mouseup", update);
+			frameDocument.addEventListener("touchmove", update, { passive: false });
+			frameDocument.addEventListener("touchend", update);
+			frameDocument.addEventListener("touchcancel", update);
 		}
 		if (!frame.positionReferenceInstances) frame.positionReferenceInstances = new WeakSet();
 		if (frame.positionReferenceInstances.has(this)) return;
 		frame.positionReferenceInstances.add(this);
 		frame.addEventListener("position-reference-move", event => {
-			if (!this.clickedInfo?.isMoving) return;
-			this._prepareReferenceTargets();
-			this._updateReference(event.detail.x, event.detail.y, event.detail.document, event.detail.element);
+			if (!this.clickedInfo?.isMoving) {
+				if (["mouseup", "touchend", "touchcancel"].includes(event.detail.type))
+					this._cancelPendingDragStart();
+				return;
+			}
+			if (event.detail.type === "touchmove") event.detail.originalEvent?.preventDefault();
+			const point = mapFramePoint(frame, event.detail.x, event.detail.y);
+			const reference = {
+				x: event.detail.x,
+				y: event.detail.y,
+				document: event.detail.document,
+				element: event.detail.element
+			};
+			if (event.detail.type === "mouseup" || event.detail.type === "touchend" || event.detail.type === "touchcancel") {
+				this._onUp({ clientX: point.x, clientY: point.y }, event.detail.type === "touchcancel", reference);
+				return;
+			}
+			this._onMove({ clientX: point.x, clientY: point.y }, reference);
 		});
 	},
 
@@ -311,7 +363,7 @@ const snappableMethods = {
 		if (!this.positionMarker || this.positionMarker.ownerDocument !== doc) {
 			this._removePositionMarker();
 			const marker = this.el.cloneNode(true);
-			const activationAttributes = ["draggable", "draggable-query", "clonable-query", "droppable-query", "snappable-query", "draggable-value", "clonable-value", "position-query", "position-target", "position-reference", "snapped", "position-marker"];
+			const activationAttributes = ["draggable", "draggable-query", "clonable-query", "droppable-query", "snappable-query", "draggable-value", "clonable-value", "position-query", "position-element", "position-reference", "snapped", "position-marker"];
 			for (const element of [marker, ...marker.querySelectorAll("*")]) {
 				element.removeAttribute("id");
 				element.removeAttribute("style");
@@ -367,7 +419,7 @@ const snappableMethods = {
 				value: insertValue,
 				inserted: true,
 				reference: this.reference,
-				editorElement: getEditorDetails(element).editorElement
+				editorElement: getEditorDetails(element).element || getEditorDetails(element).editorElement
 			});
 			return true;
 		}

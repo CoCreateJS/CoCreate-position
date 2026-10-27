@@ -233,9 +233,14 @@ position.prototype = {
         };
     },
 
-    _onMove: function (e) {
+    _onMove: function (e, reference) {
         this._startMoving(e);
-        this._updateSnappableReference?.(e.clientX, e.clientY, this.el.ownerDocument);
+        this._updateSnappableReference?.(
+            reference?.x ?? e.clientX,
+            reference?.y ?? e.clientY,
+            reference?.document ?? this.el.ownerDocument,
+            reference?.element
+        );
         this.__getBoundStatus(e)
         this.__animate();
     },
@@ -274,7 +279,7 @@ position.prototype = {
         if (this.dragType === "clonable")
             ghost.style.opacity = this.dragOriginalOpacity;
         ghost.setAttribute("aria-hidden", "true");
-        const activationAttributes = ["draggable", "position-target", "draggable-query", "clonable-query", "droppable-query", "snappable-query", "draggable-value", "clonable-value", "position-reference"];
+        const activationAttributes = ["draggable", "position-query", "position-element", "draggable-query", "clonable-query", "droppable-query", "snappable-query", "draggable-value", "clonable-value", "position-reference"];
         const previewElements = [ghost, ...ghost.querySelectorAll("*")];
         for (const element of previewElements) {
             element.removeAttribute("id");
@@ -356,7 +361,7 @@ position.prototype = {
         }
     },
 
-    _onUp: function (e, cancelled = false) {
+    _onUp: function (e, cancelled = false, reference) {
         this._unbindDocumentDrag();
         if (!this.clickedInfo) {
             this._finishMoving();
@@ -366,7 +371,7 @@ position.prototype = {
         if (e) {
             this.__getBoundStatus(e);
         }
-        this._finishSnappableReference?.(e);
+        this._finishSnappableReference?.(e, reference);
         if (this.clickedInfo.isMoving && !this.dropQuerySelector &&
             !(this.snapQuerySelector && this.reference) && !this.isParked) {
             const snap_info = this._getViewportSnapArea();

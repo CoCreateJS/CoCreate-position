@@ -1,226 +1,445 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>CoCreate Position | Demo</title>
-        <link rel="stylesheet" href="../dist/CoCreate-position.css" />
-        <style>
-            :root {
-                font-family: system-ui, sans-serif;
-                color: #202938;
-                background: #f4f6f8;
-            }
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>CoCreate Position | Demo</title>
+		<link rel="stylesheet" href="../dist/CoCreate-position.css" />
+		<style>
+			:root {
+				font-family: system-ui, sans-serif;
+				color: #202938;
+				background: #f4f6f8;
+			}
 
-            body {
-                max-width: 1100px;
-                margin: 0 auto;
-                padding: 32px 20px 64px;
-            }
+			body {
+				max-width: 1100px;
+				margin: 0 auto;
+				padding: 32px 20px 64px;
+			}
 
-            h1, h2, p { margin-top: 0; }
-            h1 { margin-bottom: 8px; }
-            .muted { color: #5d6878; }
-            .demo-section {
-                margin-top: 28px;
-                padding: 22px;
-                border: 1px solid #d9dee5;
-                border-radius: 10px;
-                background: white;
-            }
+			h1,
+			h2,
+			p {
+				margin-top: 0;
+			}
+			h1 {
+				margin-bottom: 8px;
+			}
+			.muted {
+				color: #5d6878;
+			}
+			.demo-section {
+				margin-top: 28px;
+				padding: 22px;
+				border: 1px solid #d9dee5;
+				border-radius: 10px;
+				background: white;
+			}
 
-            .floating-panel {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                z-index: 2;
-                width: 220px;
-                min-height: 110px;
-                padding: 14px;
-                border-radius: 8px;
-                background: #e8eefc;
-                box-shadow: 0 6px 24px #1c2c441f;
-            }
+			.floating-panel {
+				position: fixed;
+				top: 20px;
+				right: 20px;
+				z-index: 2;
+				width: 220px;
+				min-height: 110px;
+				padding: 14px;
+				border-radius: 8px;
+				background: #e8eefc;
+				box-shadow: 0 6px 24px #1c2c441f;
+			}
 
-            .snap-zones {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 12px;
-                min-height: 240px;
-                margin-top: 24px;
-            }
+			.snap-zones {
+				display: grid;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+				gap: 12px;
+				min-height: 240px;
+				margin-top: 24px;
+			}
 
-            .snap-area {
-                display: flex;
-                align-items: stretch;
-                min-height: 240px;
-                padding: 12px;
-                border: 2px dashed #bdc7d4;
-                border-radius: 8px;
-                background: #fafbfd;
-            }
+			.snap-area {
+				display: flex;
+				align-items: stretch;
+				min-height: 240px;
+				padding: 12px;
+				border: 2px dashed #bdc7d4;
+				border-radius: 8px;
+				background: #fafbfd;
+			}
 
-            .snap-area:empty::before {
-                content: attr(data-label);
-                color: #7a8492;
-            }
+			.snap-area:empty::before {
+				content: attr(data-label);
+				color: #7a8492;
+			}
 
-            .snap-area .floating-panel {
-                position: relative;
-                inset: auto;
-                z-index: auto;
-                box-sizing: border-box;
-                width: 100%;
-                min-height: 100%;
-                margin: 0;
-            }
+			.snap-area .floating-panel {
+				position: relative;
+				inset: auto;
+				z-index: auto;
+				box-sizing: border-box;
+				width: 100%;
+				min-height: 100%;
+				margin: 0;
+			}
 
-            [droppable].snap-area { outline: 3px solid #77a8f7; outline-offset: 2px; }
+			[droppable].snap-area {
+				outline: 3px solid #77a8f7;
+				outline-offset: 2px;
+			}
 
-            [drag-handle] {
-                margin: -14px -14px 12px;
-                padding: 10px 14px;
-                border-radius: 8px 8px 0 0;
-                background: #d4def4;
-                cursor: move;
-                user-select: none;
-            }
+			[drag-handle] {
+				margin: -14px -14px 12px;
+				padding: 10px 14px;
+				border-radius: 8px 8px 0 0;
+				background: #d4def4;
+				cursor: move;
+				user-select: none;
+			}
 
-            .anchor-row { display: flex; gap: 12px; align-items: center; }
-            button { padding: 9px 13px; cursor: pointer; }
-            #anchored-panel {
-                position: fixed;
-                z-index: 3;
-                width: 220px;
-                padding: 14px;
-                border: 1px solid #93a6ca;
-                border-radius: 8px;
-                background: #f1f5ff;
-                box-shadow: 0 6px 24px #1c2c4430;
-            }
+			.anchor-row {
+				display: flex;
+				gap: 12px;
+				align-items: center;
+			}
+			button {
+				padding: 9px 13px;
+				cursor: pointer;
+			}
+			#anchored-panel {
+				position: fixed;
+				z-index: 3;
+				width: 220px;
+				padding: 14px;
+				border: 1px solid #93a6ca;
+				border-radius: 8px;
+				background: #f1f5ff;
+				box-shadow: 0 6px 24px #1c2c4430;
+			}
 
-            .boards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-            .board-group + .board-group { margin-top: 24px; }
-            .board-group > h3 { margin: 0 0 12px; font-size: 16px; }
-            .board-column h3 { margin: 0 0 10px; font-size: 15px; }
-            .drop-zone {
-                min-height: 240px;
-                padding: 12px;
-                border: 2px dashed #bdc7d4;
-                border-radius: 8px;
-                background: #fafbfd;
-            }
+			.hover-demo-grid {
+				display: grid;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+				gap: 16px;
+			}
+			.hover-editor-card {
+				min-height: 290px;
+				padding: 18px;
+				border: 1px solid #d9dee5;
+				border-radius: 9px;
+				background: #fff;
+			}
+			.hover-editor-card h1,
+			.hover-editor-card h2 {
+				margin: 0 0 10px;
+			}
+			.hover-editor-card p {
+				color: #596273;
+			}
+			.hover-editor-card blockquote {
+				margin: 14px 0;
+				padding-left: 12px;
+				border-left: 3px solid #aab8d0;
+				color: #596273;
+			}
+			.hover-demo-frame {
+				display: block;
+				width: 100%;
+				height: 328px;
+				border: 1px solid #d9dee5;
+				border-radius: 9px;
+				background: white;
+			}
+			#hover-format-toolbar {
+				position: fixed;
+				z-index: 20;
+				display: flex;
+				gap: 4px;
+				padding: 5px;
+				border: 1px solid #bfc7d4;
+				border-radius: 8px;
+				background: #202938;
+				box-shadow: 0 5px 18px #17203344;
+			}
+			#hover-format-toolbar[hidden] {
+				display: none !important;
+			}
+			#hover-format-toolbar button {
+				min-width: 34px;
+				padding: 5px 8px;
+				border: 0;
+				border-radius: 4px;
+				color: white;
+				background: transparent;
+			}
+			#hover-format-toolbar button:hover {
+				background: #ffffff26;
+			}
 
-            .drop-zone:empty::after { content: "Drop a card here"; color: #7a8492; }
-            .drop-item, .copy-item {
-                position: relative;
-                margin: 0 0 10px;
-                padding: 12px;
-                border: 1px solid #d3dae3;
-                border-radius: 6px;
-                background: #fff;
-                cursor: grab;
-            }
+			.boards {
+				display: grid;
+				grid-template-columns: repeat(3, minmax(0, 1fr));
+				gap: 16px;
+			}
+			.board-group + .board-group {
+				margin-top: 24px;
+			}
+			.board-group > h3 {
+				margin: 0 0 12px;
+				font-size: 16px;
+			}
+			.board-column h3 {
+				margin: 0 0 10px;
+				font-size: 15px;
+			}
+			.drop-zone {
+				min-height: 240px;
+				padding: 12px;
+				border: 2px dashed #bdc7d4;
+				border-radius: 8px;
+				background: #fafbfd;
+			}
 
-            .drop-item:active, .copy-item:active { cursor: grabbing; }
-            [droppable] { outline: 3px solid #77a8f7; outline-offset: 2px; }
-            [position-marker] {
-                margin: 0 0 10px;
-                border: 2px dashed #4384e8;
-                border-radius: 6px;
-                background: #eaf2ff;
-                opacity: .8;
-            }
+			.drop-zone:empty::after {
+				content: "Drop a card here";
+				color: #7a8492;
+			}
+			.board-frame {
+				display: block;
+				width: 100%;
+				height: 240px;
+				border: 0;
+				border-radius: 6px;
+				background: #fafbfd;
+			}
+			.drop-item,
+			.copy-item {
+				position: relative;
+				margin: 0 0 10px;
+				padding: 12px;
+				border: 1px solid #d3dae3;
+				border-radius: 6px;
+				background: #fff;
+				cursor: grab;
+			}
 
-            code { padding: 2px 5px; border-radius: 4px; background: #eef1f5; }
-            pre { overflow: auto; padding: 14px; border-radius: 7px; background: #f2f4f7; }
-            @media (max-width: 760px) {
-                .boards { grid-template-columns: 1fr; }
-                .floating-panel { position: relative; top: auto; right: auto; margin: 16px 0; }
-            }
-        </style>
-    </head>
-    <body>
-        <h1>CoCreate Position</h1>
-        <p class="muted">A small interactive guide to positioning, queries, and insertion references.</p>
+			.drop-item:active,
+			.copy-item:active {
+				cursor: grabbing;
+			}
+			[droppable] {
+				outline: 3px solid #77a8f7;
+				outline-offset: 2px;
+			}
+			[position-marker] {
+				margin: 0 0 10px;
+				border: 2px dashed #4384e8;
+				border-radius: 6px;
+				background: #eaf2ff;
+				opacity: 0.8;
+			}
 
-        <section class="demo-section">
-            <h2>Move an element</h2>
-            <p class="muted">Drag the panel by its header into the left or right snap area. The panel uses <code>snappable-query</code> to select its snap containers.</p>
-            <div class="floating-panel" draggable snappable-query="$top .snap-area[]">
-                <div drag-handle>Drag this panel</div>
-                Its position can be controlled with CSS and the Position events.
-            </div>
-            <div class="snap-zones">
-                <div class="snap-area" data-label="Left snap area"></div>
-                <div class="snap-area" data-label="Right snap area"></div>
-            </div>
-            <pre><code>&lt;div draggable snappable-query="$top .snap-area[]"&gt;...&lt;/div&gt;</code></pre>
-        </section>
+			code {
+				padding: 2px 5px;
+				border-radius: 4px;
+				background: #eef1f5;
+			}
+			pre {
+				overflow: auto;
+				padding: 14px;
+				border-radius: 7px;
+				background: #f2f4f7;
+			}
+			@media (max-width: 760px) {
+				.boards {
+					grid-template-columns: 1fr;
+				}
+				.floating-panel {
+					position: relative;
+					top: auto;
+					right: auto;
+					margin: 16px 0;
+				}
+				.hover-demo-grid {
+					grid-template-columns: 1fr;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<h1>CoCreate Position</h1>
+		<p class="muted">
+			A small interactive guide to positioning, queries, and insertion
+			references.
+		</p>
 
-        <section class="demo-section">
-            <h2>Declarative placement with position-query</h2>
-            <p class="muted">Click the trigger to position the panel beside it.</p>
-            <div class="anchor-row">
-                <button
-                    id="placement-anchor"
-                    type="button"
-                    position-query="$top #anchored-panel"
-                    position="bottom left">
-                    Open positioned panel
-                </button>
-                <span id="anchored-panel" position-target hidden>
-                    I’m positioned relative to the button.
-                </span>
-            </div>
-            <pre><code>&lt;button position-query="$top #anchored-panel" position="bottom left"&gt;Open&lt;/button&gt;
-&lt;div id="anchored-panel" position-target&gt;...&lt;/div&gt;</code></pre>
-        </section>
+		<section class="demo-section">
+			<h2>Move an element</h2>
+			<p class="muted">
+				Drag the panel by its header into the left or right snap area.
+				The panel uses <code>snappable-query</code> to select its snap
+				containers.
+			</p>
+			<div
+				class="floating-panel"
+				draggable
+				snappable-query="$top .snap-area[]">
+				<div drag-handle>Drag this panel</div>
+				Its position can be controlled with CSS and the Position events.
+			</div>
+			<div class="snap-zones">
+				<div class="snap-area" data-label="Left snap area"></div>
+				<div class="snap-area" data-label="Right snap area"></div>
+			</div>
+			<pre><code>&lt;div draggable snappable-query="$top .snap-area[]"&gt;...&lt;/div&gt;</code></pre>
+		</section>
 
-        <section class="demo-section">
-            <h2>Container query and insertion marker</h2>
-            <p class="muted">
-                The first row moves its cards; the second row clones its cards. Each row has its
-                own source query, while both can insert into any highlighted board.
-            </p>
-            <div class="board-group">
-                <h3>Draggable cards</h3>
-                <div class="boards" draggable-query=".drop-item[]" droppable-query="$top .drop-zone[]">
-                    <div class="board-column">
-                        <h3>Board one</h3>
-                        <div class="drop-zone" id="move-board-one"><div class="drop-item">Move card A</div></div>
-                    </div>
-                    <div class="board-column">
-                        <h3>Board two</h3>
-                        <div class="drop-zone" id="move-board-two"><div class="drop-item">Move card B</div></div>
-                    </div>
-                    <div class="board-column">
-                        <h3>Board three</h3>
-                        <div class="drop-zone" id="move-board-three"><div class="drop-item">Move card C</div></div>
-                    </div>
-                </div>
-            </div>
-            <div class="board-group">
-                <h3>Clonable cards</h3>
-                <div class="boards" clonable-query=".copy-item[]" droppable-query="$top .drop-zone[]">
-                    <div class="board-column">
-                        <h3>Board one</h3>
-                        <div class="drop-zone" id="clone-board-one"><div class="copy-item">Clone card A</div></div>
-                    </div>
-                    <div class="board-column">
-                        <h3>Board two</h3>
-                        <div class="drop-zone" id="clone-board-two"><div class="copy-item">Clone card B</div></div>
-                    </div>
-                    <div class="board-column">
-                        <h3>Board three</h3>
-                        <div class="drop-zone" id="clone-board-three"><div class="copy-item">Clone card C</div></div>
-                    </div>
-                </div>
-            </div>
-            <pre><code>&lt;div class="boards" draggable-query=".drop-item[]" droppable-query="$top .drop-zone[]"&gt;...&lt;/div&gt;
+		<section class="demo-section">
+			<h2>Declarative placement with position-query</h2>
+			<p class="muted">
+				Click the trigger to position the panel beside it.
+			</p>
+			<div class="anchor-row">
+				<button
+					id="placement-anchor"
+					type="button"
+					position-query="$this"
+					position-element="$top #anchored-panel"
+					position="bottom left">
+					Open positioned panel
+				</button>
+				<span id="anchored-panel" hidden>
+					I’m positioned relative to the button.
+				</span>
+			</div>
+			<pre><code>&lt;button position-query="$this" position-element="$top #anchored-panel" position="bottom left"&gt;Open&lt;/button&gt;
+&lt;div id="anchored-panel"&gt;...&lt;/div&gt;</code></pre>
+		</section>
+
+		<section class="demo-section">
+			<h2>Follow hovered content in a page and an iframe</h2>
+			<p class="muted">
+				Hover headings, paragraphs, or inline content in either editor.
+				The same formatting toolbar follows the deepest hovered element.
+			</p>
+			<div class="hover-demo-grid">
+				<div
+					class="hover-editor-card"
+					position-query="*:hover[]"
+					position-element="$top #hover-format-toolbar"
+					position="top left"
+					contenteditable="true">
+					<h1>Page editor</h1>
+					<h2>Hover a heading</h2>
+					<p>
+						Move across this rich text sample to see the toolbar
+						follow each element.
+					</p>
+					<blockquote>
+						Nested content gives the hover query several matching
+						ancestors.
+					</blockquote>
+					<p>
+						<strong>Bold text</strong> and <em>italic text</em> are
+						separate hover targets.
+					</p>
+				</div>
+				<iframe
+					class="hover-demo-frame"
+					title="Rich text editor inside an iframe"
+					position-query="$contentDocument *:hover[]"
+					position-element="$top #hover-format-toolbar"
+					position="top left"
+					srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:18px;font:16px/1.5 system-ui,sans-serif;color:#202938}.editor{min-height:250px;padding:18px;border:1px solid #d9dee5;border-radius:9px}h1,h2{margin:0 0 10px}p{color:#596273}blockquote{margin:14px 0;padding-left:12px;border-left:3px solid #aab8d0;color:#596273}</style></head><body><div class="editor" contenteditable="true"><h1>Iframe editor</h1><h2>Hover a heading</h2><p>Hover inside the frame. Its document tracks the pointer and the parent positions the toolbar.</p><blockquote>This nested quote is another target.</blockquote><p><strong>Bold text</strong> and <em>italic text</em> are separate hover targets.</p></div></body></html>'></iframe>
+			</div>
+			<div
+				id="hover-format-toolbar"
+				hidden
+				aria-label="Formatting toolbar">
+				<button type="button" aria-label="Heading 1">
+					<strong>H1</strong>
+				</button>
+				<button type="button" aria-label="Heading 2">
+					<strong>H2</strong>
+				</button>
+				<button type="button" aria-label="Bold">
+					<strong>B</strong>
+				</button>
+				<button type="button" aria-label="Italic"><em>I</em></button>
+				<button type="button" aria-label="Link">↗</button>
+			</div>
+			<pre><code>&lt;div position-query="*:hover[]" position-element="$top #hover-format-toolbar" position="top left"&gt;...&lt;/div&gt;
+&lt;iframe position-query="$contentDocument *:hover[]" position-element="$top #hover-format-toolbar"&gt;...&lt;/iframe&gt;</code></pre>
+		</section>
+
+		<section class="demo-section">
+			<h2>Container query and insertion marker</h2>
+			<p class="muted">
+				The first row moves its cards; the second row clones its cards.
+				Each row has its own source query, while both can insert into
+				any highlighted board, including Board three inside a
+				same-origin iframe. This demo covers dragging into the frame.
+			</p>
+			<div class="board-group">
+				<h3>Draggable cards</h3>
+				<div
+					class="boards"
+					draggable-query=".drop-item[]"
+					droppable-query="$top .drop-zone[], $top #move-board-three-frame $contentDocument .drop-zone">
+					<div class="board-column">
+						<h3>Board one</h3>
+						<div class="drop-zone" id="move-board-one">
+							<div class="drop-item">Move card A</div>
+						</div>
+					</div>
+					<div class="board-column">
+						<h3>Board two</h3>
+						<div class="drop-zone" id="move-board-two">
+							<div class="drop-item">Move card B</div>
+						</div>
+					</div>
+					<div class="board-column">
+						<h3>Board three (iframe)</h3>
+						<iframe
+							class="board-frame"
+							id="move-board-three-frame"
+							title="Move card drop board in an iframe"
+							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:10px;font:14px system-ui,sans-serif}.drop-zone{box-sizing:border-box;min-height:218px;padding:12px;border:2px dashed #bdc7d4;border-radius:8px;background:#fafbfd}.drop-zone:empty:before{content:"Drop a card here (iframe)";color:#7a8492}</style></head><body><div class="drop-zone" id="move-board-three"></div></body></html>'></iframe>
+					</div>
+				</div>
+			</div>
+			<div class="board-group">
+				<h3>Clonable cards</h3>
+				<div
+					class="boards"
+					clonable-query=".copy-item[]"
+					droppable-query="$top .drop-zone[], $top #clone-board-three-frame $contentDocument .drop-zone">
+					<div class="board-column">
+						<h3>Board one</h3>
+						<div class="drop-zone" id="clone-board-one">
+							<div class="copy-item">Clone card A</div>
+						</div>
+					</div>
+					<div class="board-column">
+						<h3>Board two</h3>
+						<div class="drop-zone" id="clone-board-two">
+							<div class="copy-item">Clone card B</div>
+						</div>
+					</div>
+					<div class="board-column">
+						<h3>Board three (iframe)</h3>
+						<iframe
+							class="board-frame"
+							id="clone-board-three-frame"
+							title="Cloned card drop board in an iframe"
+							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:10px;font:14px system-ui,sans-serif}.drop-zone{box-sizing:border-box;min-height:218px;padding:12px;border:2px dashed #bdc7d4;border-radius:8px;background:#fafbfd}.drop-zone:empty:before{content:"Drop a card here (iframe)";color:#7a8492}</style></head><body><div class="drop-zone" id="clone-board-three"></div></body></html>'></iframe>
+					</div>
+				</div>
+			</div>
+			<pre><code>&lt;div class="boards" draggable-query=".drop-item[]" droppable-query="$top .drop-zone[]"&gt;...&lt;/div&gt;
 &lt;div class="boards" clonable-query=".copy-item[]" droppable-query="$top .drop-zone[]"&gt;...&lt;/div&gt;</code></pre>
-        </section>
+		</section>
 
-        <script src="../dist/CoCreate-position.js"></script>
-    </body>
+		<script src="../dist/CoCreate-position.min.js"></script>
+	</body>
 </html>
