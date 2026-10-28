@@ -59,9 +59,15 @@ the interaction:
 ```
 
 Position resolves both queries when the trigger is activated. If
-`position-query` is omitted, the trigger is the anchor. Placement can be
-`top`, `bottom`, `left`, or `right`, with `start`, `center`, or `end` alignment
-(for example, `top right`). `position-offset` controls the gap from the anchor;
+`position-query` is omitted, the trigger is the anchor. Placement supports a
+3×3 grid: `top`, `middle`, or `bottom` combined with `left`, `center`, or
+`right` (for example, `top right` or `middle center`). The eight surrounding
+positions and the centered position are available. Add `cursor` to anchor to
+the current pointer coordinates when available, or `text` to anchor to the
+first visible character (for example, `top left cursor` or `top left text`). If
+the requested cursor or text anchor is unavailable, Position uses the queried
+element.
+`position-offset` controls the gap from the anchor;
 `position-padding` sets the collision boundary inset; and
 `position-collision="flip shift"` controls collision handling. The defaults
 are an 8px offset and padding, with flipping and shifting enabled.
@@ -101,6 +107,18 @@ For a same-origin iframe, query its document with `$contentDocument`:
 Position tracks pointer movement inside same-origin frames and maps the target
 geometry into the parent document. Cross-origin frame contents cannot be
 queried by the parent page due to browser security boundaries.
+
+For selected text inside a same-origin iframe, use `$selection` as the anchor.
+The selection event is forwarded from the iframe element, and the floating
+element is positioned against the selected range:
+
+```html
+<div
+  position-query="$parent iframe $selection"
+  position-element="$top #format-toolbar"
+  position="top center"
+></div>
+```
 
 ## Drag elements
 

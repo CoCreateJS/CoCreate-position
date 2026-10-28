@@ -3,7 +3,7 @@ import "./index.css";
 
 const draggableSelector = "[draggable], [draggable-query], [clonable-query]";
 const snappableSelector = "[droppable-query], [snappable-query], [position-reference]";
-const placementSelector = "[position-query], [position-element]";
+const placementSelector = "[position-query], [position-element], [position-events], [position], [position-offset], [position-padding], [position-collision]";
 
 let draggablePromise;
 let snappablePromise;
@@ -54,7 +54,7 @@ function loadForMutation({ target, attributeName }) {
 		loadDraggable().catch(error => reportError(target, error, "draggable"));
 	if (target?.matches?.(snappableSelector) || ["draggable-query", "clonable-query", "droppable-query", "snappable-query", "position-reference"].includes(attributeName))
 		loadSnappable().catch(error => reportError(target, error, "snappable"));
-	if (target?.matches?.(placementSelector) || ["position-query", "position-element"].includes(attributeName))
+	if (target?.matches?.(placementSelector) || ["position-query", "position-events"].includes(attributeName))
 		loadPlacement().catch(error => reportError(target, error, "placement"));
 }
 
@@ -68,7 +68,7 @@ observer.init([
 	{
 		name: "CoCreatePositionLoaderAttributes",
 		types: ["attributes"],
-		attributeFilter: ["draggable", "draggable-query", "clonable-query", "droppable-query", "snappable-query", "position-reference", "position-query", "position-element"],
+		attributeFilter: ["draggable", "draggable-query", "clonable-query", "droppable-query", "snappable-query", "position-reference", "position-query", "position-events"],
 		selector: [draggableSelector, snappableSelector, placementSelector].join(", "),
 		callback: loadForMutation
 	}

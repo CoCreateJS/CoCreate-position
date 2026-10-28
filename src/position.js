@@ -2,10 +2,9 @@ import observer from "@cocreate/observer";
 import { dispatch } from "./helpers/events.js";
 
 const placementStates = new WeakMap();
-const triggers = new WeakSet();
-const hoverTriggers = new WeakSet();
 const triggerElements = new WeakMap();
-const queryFrameDocuments = new WeakMap();
+const positionEventBindings = new WeakMap();
+const positionConfigSelector = "[position-query], [position-element], [position-events], [position], [position-offset], [position-padding], [position-collision]";
 
 function getQueryAttribute(element, name) {
 	return element?.getAttributeNode?.(name)?.value ?? null;
@@ -26,32 +25,90 @@ function attachPlacement(element) {
 	position.unplace = () => unplace(element);
 }
 
+function pointInDocument(point, sourceDocument, targetDocument) {
+	if (!point || !sourceDocument) return null;
+	let { x, y } = point;
+	let document = sourceDocument;
+	while (document !== targetDocument) {
+		const frame = document.defaultView?.frameElement;
+		if (!frame) return null;
+		const rect = frame.getBoundingClientRect();
+		const scaleX = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
+		const scaleY = frame.offsetHeight ? rect.height / frame.offsetHeight : 1;
+		x = rect.left + (frame.clientLeft + x) * scaleX;
+		y = rect.top + (frame.clientTop + y) * scaleY;
+		document = frame.ownerDocument;
+	}
+	return { x, y };
+}
+
+function getCursorPoint(event, targetDocument) {
+	const point = event?.detail?.cursor ||
+		(Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)
+			? { x: event.clientX, y: event.clientY }
+			: null);
+	const sourceDocument = event?.detail?.document ||
+		(event?.currentTarget?.nodeType === 9
+			? event.currentTarget
+			: event?.currentTarget?.contentDocument || event?.currentTarget?.ownerDocument);
+	return pointInDocument(point, sourceDocument, targetDocument);
+}
+
 function place(element, anchor, options = {}) {
 	if (!anchor?.getBoundingClientRect) return;
+	const anchorDocument = anchor.ownerDocument ||
+		anchor.startContainer?.ownerDocument || anchor.commonAncestorContainer?.ownerDocument;
+	if (!anchorDocument) return;
 	let state = placementStates.get(element);
 	if (!state) placementStates.set(element, state = {});
 	state.options = options;
 	if (state.anchor !== anchor) {
 		unplace(element);
 		state.anchor = anchor;
+		state.document = anchorDocument;
 		state.update = () => {
 			if (state.frame) return;
-			const view = anchor.ownerDocument.defaultView;
+			const view = anchorDocument.defaultView;
 			state.frame = view.requestAnimationFrame(() => {
 				state.frame = null;
-				if (state.anchor?.isConnected) place(element, state.anchor, state.options);
+				const currentAnchor = state.anchor;
+				const isConnected = currentAnchor?.isConnected ??
+					currentAnchor?.startContainer?.isConnected;
+				if (isConnected) place(element, currentAnchor, state.options);
 			});
 		};
-		anchor.ownerDocument.addEventListener("scroll", state.update, true);
-		anchor.ownerDocument.defaultView?.addEventListener("resize", state.update);
+		anchorDocument.addEventListener("scroll", state.update, true);
+		anchorDocument.defaultView?.addEventListener("resize", state.update);
 	}
 
-	const attribute = (name, fallback) => anchor.getAttribute(name) ?? fallback;
+	const attribute = (name, fallback) => anchor.getAttribute?.(name) ?? fallback;
 	const placement = options.position || options.placement || attribute("position", "bottom-start");
 	const offset = Number(options.offset ?? attribute("position-offset", 8));
 	const padding = Number(options.padding ?? attribute("position-padding", 8));
 	const collision = (options.collision || attribute("position-collision", "flip shift")).split(/[\s,]+/);
-	const anchorRect = getRectInDocument(anchor, element.ownerDocument);
+	const tokens = String(placement).trim().toLowerCase().split(/[\s-]+/).filter(Boolean);
+	const usesCursor = tokens.includes("cursor");
+	const usesText = tokens.includes("text");
+	const positionalTokens = tokens.filter(token => token !== "cursor" && token !== "text");
+	let row = "bottom";
+	let column = "center";
+	let side = null;
+	let sideAlign = "middle";
+	if (["top", "middle", "bottom"].includes(positionalTokens[0])) {
+		row = positionalTokens[0];
+		column = ({ start: "left", end: "right" })[positionalTokens[1]] || positionalTokens[1] || "center";
+	} else if (["left", "right"].includes(positionalTokens[0])) {
+		side = positionalTokens[0];
+		sideAlign = ({ start: "top", end: "bottom" })[positionalTokens[1]] || positionalTokens[1] || "middle";
+	} else if (positionalTokens[0] === "center") {
+		row = "middle";
+		column = "center";
+	}
+	const cursorPoint = usesCursor ? options.cursorPoint : null;
+	const anchorRect = cursorPoint
+		? { left: cursorPoint.x, top: cursorPoint.y, right: cursorPoint.x, bottom: cursorPoint.y, width: 0, height: 0 }
+		: (usesText && anchor.nodeType === 1 ? getTextRectInDocument(anchor, element.ownerDocument) : null) ||
+			getRectInDocument(anchor, element.ownerDocument);
 	if (!anchorRect) return;
 	const elementRect = element.getBoundingClientRect();
 	const container = element.parentElement;
@@ -61,41 +118,39 @@ function place(element, anchor, options = {}) {
 	const boundary = isFixed
 		? { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight }
 		: parentRect;
-	let [side, align = "center"] = String(placement).trim().toLowerCase().split(/[\s-]+/);
-	align = ({ left: "start", right: "end", top: "start", bottom: "end" })[align] || align;
-
-	const getCoordinates = currentSide => {
+	const getCoordinates = (currentRow, currentSide = side) => {
 		let left;
 		let top;
-		if (currentSide === "top" || currentSide === "bottom") {
-			top = currentSide === "top"
-				? anchorRect.top - elementRect.height - offset
-				: anchorRect.bottom + offset;
-			left = align === "start" ? anchorRect.left
-				: align === "end" ? anchorRect.right - elementRect.width
-					: anchorRect.left + (anchorRect.width - elementRect.width) / 2;
-		} else {
+		if (currentSide) {
 			left = currentSide === "left"
 				? anchorRect.left - elementRect.width - offset
 				: anchorRect.right + offset;
-			top = align === "start" ? anchorRect.top
-				: align === "end" ? anchorRect.bottom - elementRect.height
+			top = sideAlign === "top" ? anchorRect.top
+				: sideAlign === "bottom" ? anchorRect.bottom - elementRect.height
 					: anchorRect.top + (anchorRect.height - elementRect.height) / 2;
+		} else {
+			top = currentRow === "top" ? anchorRect.top - elementRect.height - offset
+				: currentRow === "bottom" ? anchorRect.bottom + offset
+					: anchorRect.top + (anchorRect.height - elementRect.height) / 2;
+			left = column === "left" ? anchorRect.left
+				: column === "right" ? anchorRect.right - elementRect.width
+					: anchorRect.left + (anchorRect.width - elementRect.width) / 2;
 		}
 		return { left, top };
 	};
 
-	let coordinates = getCoordinates(side);
+	let coordinates = getCoordinates(row);
 	if (collision.includes("flip")) {
 		const opposite = { top: "bottom", bottom: "top", left: "right", right: "left" };
 		const overflows =
-			(side === "top" && coordinates.top < boundary.top + padding) ||
-			(side === "bottom" && coordinates.top + elementRect.height > boundary.bottom - padding) ||
+			(!side && row === "top" && coordinates.top < boundary.top + padding) ||
+			(!side && row === "bottom" && coordinates.top + elementRect.height > boundary.bottom - padding) ||
 			(side === "left" && coordinates.left < boundary.left + padding) ||
 			(side === "right" && coordinates.left + elementRect.width > boundary.right - padding);
 		if (overflows) {
-			side = opposite[side] || side;
-			coordinates = getCoordinates(side);
+			if (side) side = opposite[side] || side;
+			else row = opposite[row] || row;
+			coordinates = getCoordinates(row);
 		}
 	}
 
@@ -114,9 +169,8 @@ function place(element, anchor, options = {}) {
 	dispatch(element, "element-positioned");
 }
 
-function getRectInDocument(element, targetDocument) {
-	let rect = element.getBoundingClientRect();
-	let document = element.ownerDocument;
+function mapRectToDocument(rect, sourceDocument, targetDocument) {
+	let document = sourceDocument;
 	while (document !== targetDocument) {
 		const frame = document.defaultView?.frameElement;
 		if (!frame) return null;
@@ -136,6 +190,30 @@ function getRectInDocument(element, targetDocument) {
 	return rect;
 }
 
+function getRectInDocument(element, targetDocument) {
+	const sourceDocument = element.ownerDocument ||
+		element.startContainer?.ownerDocument || element.commonAncestorContainer?.ownerDocument;
+	return mapRectToDocument(element.getBoundingClientRect(), sourceDocument, targetDocument);
+}
+
+function getTextRectInDocument(element, targetDocument) {
+	const document = element.ownerDocument;
+	const walker = document.createTreeWalker(element, document.defaultView.NodeFilter.SHOW_TEXT);
+	let textNode;
+	while ((textNode = walker.nextNode())) {
+		const value = textNode.nodeValue || "";
+		const offset = value.search(/\S/);
+		if (offset < 0) continue;
+		const characterLength = String.fromCodePoint(value.codePointAt(offset)).length;
+		const range = document.createRange();
+		range.setStart(textNode, offset);
+		range.setEnd(textNode, offset + characterLength);
+		const rect = range.getClientRects()[0];
+		if (rect) return mapRectToDocument(rect, document, targetDocument);
+	}
+	return null;
+}
+
 function deepest(elements) {
 	return elements.reduce((current, element) =>
 		!current || current.contains(element) ? element : current, null);
@@ -144,8 +222,16 @@ function deepest(elements) {
 function placeFromTrigger(trigger) {
 	const anchorQuery = getQueryAttribute(trigger, "position-query");
 	const elementQuery = getQueryAttribute(trigger, "position-element");
-	const anchors = trigger.queryElements({ selector: anchorQuery });
-	const anchor = anchorQuery?.includes(":hover") ? deepest(anchors) : anchors[0];
+	const selectionOperator = anchorQuery?.match(/\$selection/);
+	let anchor;
+	if (selectionOperator) {
+		const prefix = anchorQuery.slice(0, selectionOperator.index).trim();
+		const sources = prefix ? trigger.queryElements({ selector: prefix }) : [trigger];
+		anchor = sources.find(source => source.selection)?.selection || null;
+	} else {
+		const anchors = trigger.queryElements({ selector: anchorQuery });
+		anchor = anchorQuery?.includes(":hover") ? deepest(anchors) : anchors[0];
+	}
 	const elements = trigger.queryElements({ selector: elementQuery });
 	const previousElements = triggerElements.get(trigger) || new Set();
 	const currentElements = new Set(elements);
@@ -166,6 +252,7 @@ function placeFromTrigger(trigger) {
 	]) {
 		if (trigger.hasAttribute(attribute)) options[option] = trigger.getAttribute(attribute);
 	}
+	options.cursorPoint = trigger.positionCursorPoint;
 	for (const element of elements) {
 		attachPlacement(element);
 		element.hidden = false;
@@ -179,96 +266,84 @@ function clearPlacement(element) {
 	element.hidden = true;
 }
 
-function scheduleTriggerUpdate(trigger) {
-	if (trigger.positionHoverFrame) return;
-	trigger.positionHoverFrame = trigger.ownerDocument.defaultView.requestAnimationFrame(() => {
-		trigger.positionHoverFrame = null;
-		placeFromTrigger(trigger);
+function schedulePositionUpdate(element, cursorPoint) {
+	element.positionCursorPoint = cursorPoint;
+	if (element.positionFrame) return;
+	element.positionFrame = element.ownerDocument.defaultView.requestAnimationFrame(() => {
+		element.positionFrame = null;
+		placeFromTrigger(element);
 	});
 }
 
-function attachQueryFrame(trigger, frame, eventTypes) {
-	if (frame?.tagName !== "IFRAME") return;
-	try {
-		const doc = frame.contentDocument;
-		if (!doc) return;
-		let frames = queryFrameDocuments.get(trigger);
-		if (!frames) queryFrameDocuments.set(trigger, (frames = new WeakMap()));
-		let binding = frames.get(frame);
-		if (!binding) frames.set(frame, (binding = { document: null, listening: false }));
-		if (binding.document === doc) return;
-		binding.document = doc;
-		for (const type of eventTypes) {
-			doc.addEventListener(type, () => scheduleTriggerUpdate(trigger), true);
-		}
-		if (binding.listening) return;
-		binding.listening = true;
-		const refresh = () => {
-			attachQueryFrame(trigger, frame, eventTypes);
-			scheduleTriggerUpdate(trigger);
-		};
-		frame.addEventListener("load", refresh);
-		frame.addEventListener("editor-ready", refresh);
-	} catch {
-		// Cross-origin iframe contents cannot be inspected.
+function getPositionEventBindings(element, query, configuredEvents) {
+	const bindings = new Map();
+	const add = (target, event) => {
+		if (!target?.addEventListener || !event) return;
+		let events = bindings.get(target);
+		if (!events) bindings.set(target, (events = new Set()));
+		events.add(event);
+	};
+
+	const operatorMatch = /\$(?:hoveredElement|clickedElement|selection)/.exec(query);
+	if (operatorMatch) {
+		const prefix = query.slice(0, operatorMatch.index).trim();
+		const matches = prefix
+			? element.queryElements({ selector: prefix })
+			: [element];
+		const event = ({
+			"$hoveredElement": "hoveredElement",
+			"$clickedElement": "clickedElement",
+			"$selection": "selection"
+		})[operatorMatch[0]];
+		for (const match of matches) add(match, event);
 	}
+	for (const event of configuredEvents) add(element, event);
+	return bindings;
 }
 
-function initHoverTrigger(trigger) {
-	if (hoverTriggers.has(trigger)) return;
-	const anchorQuery = getQueryAttribute(trigger, "position-query") || "";
-	const hoverIndex = anchorQuery.indexOf("$hoveredElement");
-	const clickIndex = anchorQuery.indexOf("$clickedElement");
-	const contentDocumentIndex = anchorQuery.indexOf("$contentDocument");
-	const eventIndex = contentDocumentIndex >= 0
-		? contentDocumentIndex
-		: hoverIndex >= 0 ? hoverIndex : clickIndex;
-	const hasHoverQuery = anchorQuery.includes(":hover") || hoverIndex >= 0;
-	const hasClickQuery = clickIndex >= 0;
-	if (!hasHoverQuery && !hasClickQuery) return;
-	hoverTriggers.add(trigger);
-	const eventTypes = [];
-	if (hasHoverQuery) {
-		eventTypes.push("pointerover", "pointermove", "pointerout", "mouseover", "mousemove", "mouseout");
-	}
-	if (hasClickQuery) eventTypes.push("click");
-
-	if (trigger.tagName === "IFRAME") {
-		attachQueryFrame(trigger, trigger, eventTypes);
+function initPositionEvents(element) {
+	const value = getQueryAttribute(element, "position-events")?.trim() || "";
+	const query = getQueryAttribute(element, "position-query") || "";
+	const existing = positionEventBindings.get(element);
+	const key = `${value}\n${query}`;
+	if (existing?.key === key) return;
+	existing?.remove();
+	const events = value.split(",").map(event => event.trim()).filter(Boolean);
+	const bindings = getPositionEventBindings(element, query, events);
+	if (!bindings.size) {
+		positionEventBindings.delete(element);
 		return;
 	}
-
-	if (eventIndex < 0) {
-		for (const type of ["mouseover", "mousemove", "mouseout", "mouseleave"])
-			trigger.addEventListener(type, () => scheduleTriggerUpdate(trigger));
-		return;
+	const update = event => schedulePositionUpdate(element, getCursorPoint(event, element.ownerDocument));
+	for (const [target, targetEvents] of bindings) {
+		for (const event of targetEvents) target.addEventListener(event, update, true);
 	}
-	const frameQuery = anchorQuery.slice(0, eventIndex).trim();
-	for (const frame of trigger.queryElements({ selector: frameQuery }))
-		attachQueryFrame(trigger, frame, eventTypes);
+	positionEventBindings.set(element, {
+		key,
+		remove: () => bindings.forEach((targetEvents, target) =>
+			targetEvents.forEach(event => target.removeEventListener(event, update, true)))
+	});
 }
 
 function unplace(element) {
 	const state = placementStates.get(element);
 	if (!state?.anchor || !state.update) return;
-	state.anchor.ownerDocument.removeEventListener("scroll", state.update, true);
-	state.anchor.ownerDocument.defaultView?.removeEventListener("resize", state.update);
-	if (state.frame) state.anchor.ownerDocument.defaultView?.cancelAnimationFrame(state.frame);
+	state.document.removeEventListener("scroll", state.update, true);
+	state.document.defaultView?.removeEventListener("resize", state.update);
+	if (state.frame) state.document.defaultView?.cancelAnimationFrame(state.frame);
 	state.anchor = null;
+	state.document = null;
 	state.update = null;
 	state.frame = null;
 }
 
-function initTriggers(elements) {
-	for (const trigger of elements) {
-		if (!getQueryAttribute(trigger, "position-element")?.trim()) continue;
-		if (!triggers.has(trigger)) {
-			triggers.add(trigger);
-			trigger.addEventListener("click", () => {
-				trigger.ownerDocument.defaultView.requestAnimationFrame(() => placeFromTrigger(trigger));
-			});
+function initTriggers(elements, schedule = true) {
+	for (const element of elements) {
+		initPositionEvents(element);
+		if (schedule && getQueryAttribute(element, "position-query") &&
+			getQueryAttribute(element, "position-element")?.trim()) {
+			schedulePositionUpdate(element);
 		}
-		initHoverTrigger(trigger);
 	}
 }
 
@@ -276,28 +351,27 @@ export function init() {
 	refresh(document.documentElement);
 }
 
-export function refresh(node) {
+export function refresh(node, schedule = true) {
 	if (node?.nodeType !== 1) return;
 	if (node.hasAttribute("position-element") && !getQueryAttribute(node, "position-element")?.trim())
 		attachPlacement(node);
-	initTriggers(node.matches("[position-element]") ? [node] : []);
-	initTriggers(node.querySelectorAll("[position-element]"));
+	initTriggers([node], schedule);
+	initTriggers(node.querySelectorAll(positionConfigSelector), schedule);
 	for (const element of node.querySelectorAll('[position-element=""]')) attachPlacement(element);
 }
 
 observer.init({
 	name: "positionPlacementAddedNodes",
 	types: ["addedNodes"],
-	selector: "[position-query], [position-element]",
+	selector: positionConfigSelector,
 	callback: mutation => refresh(mutation.target)
 });
 
 observer.init({
 	name: "positionPlacementAttributes",
 	types: ["attributes"],
-	attributeFilter: ["position-query", "position-element", "position", "position-offset", "position-padding", "position-collision"],
-	selector: "[position-query], [position-element]",
-	callback: mutation => refresh(mutation.target)
+	attributeFilter: ["position-query", "position-events"],
+	callback: mutation => refresh(mutation.target, false)
 });
 
 init();
