@@ -1,5 +1,6 @@
 import observer from "@cocreate/observer";
 import { queryElements } from "@cocreate/utils";
+import { resolveEventOperator } from "./eventOperator.js";
 import { dispatch } from "./helpers/events.js";
 
 const placementStates = new WeakMap();
@@ -283,10 +284,16 @@ function placeFromTrigger(trigger) {
 		triggerElements.delete(trigger);
 		return;
 	}
-	const selectionOperator = anchorQuery?.match(/\$selection/);
+	const eventQuery = resolveEventOperator(anchorQuery, event);
+	const selectionOperator = eventQuery.handled ? null : anchorQuery?.match(/\$selection/);
 	let anchor;
 	let matchedElements = [];
-	if (selectionOperator) {
+	if (eventQuery.handled) {
+		matchedElements = eventQuery.value
+			? queryElements({ element: eventQuery.value, selector: eventQuery.selector })
+			: [];
+		anchor = matchedElements[0];
+	} else if (selectionOperator) {
 		const prefix = anchorQuery.slice(0, selectionOperator.index).trim();
 		const sources = prefix ? queryElements({ element: trigger, selector: prefix }) : [trigger];
 		matchedElements = sources;
