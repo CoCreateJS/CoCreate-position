@@ -110,7 +110,7 @@ function place(element, anchor, options = {}) {
 		: (usesText && anchor.nodeType === 1 ? getTextRectInDocument(anchor, element.ownerDocument) : null) ||
 			getRectInDocument(anchor, element.ownerDocument);
 	if (!anchorRect) return;
-	const elementRect = element.getBoundingClientRect();
+	const elementRect = getFloatingRect(element);
 	const container = element.parentElement;
 	const parentRect = container?.getBoundingClientRect() || { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
 	const view = element.ownerDocument.defaultView;
@@ -196,6 +196,27 @@ function getRectInDocument(element, targetDocument) {
 	return mapRectToDocument(element.getBoundingClientRect(), sourceDocument, targetDocument);
 }
 
+function getFloatingRect(element) {
+	const rect = element.getBoundingClientRect();
+	if (rect.width > 0 && rect.height > 0) return rect;
+
+	const view = element.ownerDocument.defaultView;
+	const rects = [...element.querySelectorAll("*")]
+		.filter(child => {
+			const style = view.getComputedStyle(child);
+			return style.display !== "none" && style.visibility !== "hidden";
+		})
+		.map(child => child.getBoundingClientRect())
+		.filter(childRect => childRect.width > 0 || childRect.height > 0);
+	if (!rects.length) return rect;
+
+	const left = Math.min(...rects.map(childRect => childRect.left));
+	const top = Math.min(...rects.map(childRect => childRect.top));
+	const right = Math.max(...rects.map(childRect => childRect.right));
+	const bottom = Math.max(...rects.map(childRect => childRect.bottom));
+	return { left, top, right, bottom, width: right - left, height: bottom - top };
+}
+
 function getTextRectInDocument(element, targetDocument) {
 	const document = element.ownerDocument;
 	const walker = document.createTreeWalker(element, document.defaultView.NodeFilter.SHOW_TEXT);
@@ -275,53 +296,22 @@ function schedulePositionUpdate(element, cursorPoint) {
 	});
 }
 
-function getPositionEventBindings(element, query, configuredEvents) {
-	const bindings = new Map();
-	const add = (target, event) => {
-		if (!target?.addEventListener || !event) return;
-		let events = bindings.get(target);
-		if (!events) bindings.set(target, (events = new Set()));
-		events.add(event);
-	};
-
-	const operatorMatch = /\$(?:hoveredElement|clickedElement|selection)/.exec(query);
-	if (operatorMatch) {
-		const prefix = query.slice(0, operatorMatch.index).trim();
-		const matches = prefix
-			? element.queryElements({ selector: prefix })
-			: [element];
-		const event = ({
-			"$hoveredElement": "hoveredElement",
-			"$clickedElement": "clickedElement",
-			"$selection": "selection"
-		})[operatorMatch[0]];
-		for (const match of matches) add(match, event);
-	}
-	for (const event of configuredEvents) add(element, event);
-	return bindings;
-}
-
 function initPositionEvents(element) {
 	const value = getQueryAttribute(element, "position-events")?.trim() || "";
-	const query = getQueryAttribute(element, "position-query") || "";
 	const existing = positionEventBindings.get(element);
-	const key = `${value}\n${query}`;
+	const key = value;
 	if (existing?.key === key) return;
 	existing?.remove();
 	const events = value.split(",").map(event => event.trim()).filter(Boolean);
-	const bindings = getPositionEventBindings(element, query, events);
-	if (!bindings.size) {
+	if (!events.length) {
 		positionEventBindings.delete(element);
 		return;
 	}
 	const update = event => schedulePositionUpdate(element, getCursorPoint(event, element.ownerDocument));
-	for (const [target, targetEvents] of bindings) {
-		for (const event of targetEvents) target.addEventListener(event, update, true);
-	}
+	for (const event of events) element.addEventListener(event, update, true);
 	positionEventBindings.set(element, {
 		key,
-		remove: () => bindings.forEach((targetEvents, target) =>
-			targetEvents.forEach(event => target.removeEventListener(event, update, true)))
+		remove: () => events.forEach(event => element.removeEventListener(event, update, true))
 	});
 }
 
