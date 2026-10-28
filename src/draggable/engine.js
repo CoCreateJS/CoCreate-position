@@ -1,6 +1,14 @@
 import { dispatch } from "../helpers/events.js";
 import { hasSelection } from "@cocreate/utils";
 
+let autoScrollPromise;
+
+function loadAutoScroll() {
+    autoScrollPromise ||= import(/* webpackChunkName: "position-auto-scroll" */ "../autoScroll.js")
+        .catch(error => { autoScrollPromise = undefined; throw error; });
+    return autoScrollPromise;
+}
+
 function position(el, container, options) {
     if (!(el && el.nodeType && el.nodeType === 1)) {
         return;
@@ -141,6 +149,7 @@ position.prototype = {
             if (!this.clickedInfo?.isMoving) return;
             this._selectElement();
             this._bindDocumentDrag();
+            this._startAutoScroll(event.touches?.[0] || event);
         }, 200);
     },
 
@@ -234,6 +243,12 @@ position.prototype = {
     },
 
     _onMove: function (e, reference) {
+        this.autoScrollPointer = {
+            x: reference?.x ?? e.clientX,
+            y: reference?.y ?? e.clientY,
+            document: reference?.document ?? this.el.ownerDocument
+        };
+        this.autoScroll?.update(this.autoScrollPointer);
         this._startMoving(e);
         this._updateSnappableReference?.(
             reference?.x ?? e.clientX,
@@ -243,6 +258,24 @@ position.prototype = {
         );
         this.__getBoundStatus(e)
         this.__animate();
+    },
+
+    _startAutoScroll: function (event) {
+        const drag = this.clickedInfo;
+        this.autoScroll?.stop();
+        this.autoScrollPointer = { x: event.clientX, y: event.clientY, document: this.el.ownerDocument };
+        loadAutoScroll().then(({ createAutoScroll }) => {
+            if (this.clickedInfo !== drag || !this.el.isConnected) return;
+            this.autoScroll = createAutoScroll({
+                element: this.el,
+                isActive: () => this.clickedInfo === drag && drag.isMoving,
+                onScroll: (pointer, reference) => this._onMove(pointer, reference),
+                onCancel: () => this._onUp(null, true)
+            });
+            this.autoScroll.update(this.autoScrollPointer);
+        }).catch(error => {
+            dispatch(this.el, "position-error", { error, feature: "auto-scroll" });
+        });
     },
 
     _clearDocumentSelection: function () {
@@ -362,6 +395,9 @@ position.prototype = {
     },
 
     _onUp: function (e, cancelled = false, reference) {
+        this.autoScroll?.stop();
+        this.autoScroll = null;
+        this.autoScrollPointer = null;
         this._unbindDocumentDrag();
         if (!this.clickedInfo) {
             this._finishMoving();

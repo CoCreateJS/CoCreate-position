@@ -21,7 +21,8 @@
   "scripts": {
     "start": "webpack --config webpack.config.js",
     "build": "webpack --mode=production --config webpack.config.js",
-    "dev": "webpack --config webpack.config.js --watch"
+    "dev": "webpack --config webpack.config.js --watch",
+    "test": "node --test test/*.cjs"
   },
   "repository": {
     "type": "git",
@@ -43,7 +44,8 @@
     "@cocreate/utils": "^1.54.0"
   },
   "devDependencies": {
-    "@cocreate/webpack": "^1.9.0"
+    "@cocreate/webpack": "^1.9.0",
+    "playwright-core": "^1.64.1"
   },
   "allowScripts": {
     "@cocreate/observer@1.19.0": true,

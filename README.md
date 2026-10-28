@@ -152,6 +152,23 @@ Position inserts an element value as an element and a string value as HTML. A
 custom `draggable-value` is removed from its source after a successful drop;
 `clonable-value` leaves its source in place.
 
+## Auto-scroll while dragging
+
+Active drags automatically scroll when the pointer enters the visible top or
+bottom edge of a scrollable container. No additional attributes are required.
+The auto-scroll module loads on the first confirmed drag, and continues
+scrolling while the pointer stays at the edge, even without further movement.
+
+The edge zone is up to 48 pixels deep. Speed increases toward the edge, up to
+800 CSS pixels per second. Nested containers scroll from the inside outward;
+an outer container takes over at an inner container's limit when the pointer
+is also near its edge. Viewport scrolling and same-origin iframe drop
+containers use the same behavior.
+
+Drop references, insertion markers, and drag previews refresh after scrolling.
+Scrolling stops when the pointer leaves the edge, the drag ends or is canceled,
+the window loses focus, or the dragged element is removed.
+
 ## Snap to containers and inspect insertion points
 
 Use `snappable-query` to select snap destinations independently of
