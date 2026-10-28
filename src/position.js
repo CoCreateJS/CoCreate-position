@@ -10,7 +10,7 @@ const pendingPositionEvents = new WeakMap();
 const positionConfigSelector = "[position-query], [position-events]";
 
 function getQueryAttribute(element, name) {
-	return element?.getAttributeNode?.(name)?.value ?? null;
+	return element?.getAttribute?.(name) ?? null;
 }
 
 export function initPositionTargets(elements) {
