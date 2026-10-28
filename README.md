@@ -39,85 +39,83 @@ yarn add @cocreate/position
 The JavaScript entry imports Position's stylesheet. If your bundler extracts
 CSS, make sure the generated stylesheet is included in your page.
 
-## Place an element relative to a target
+## Overlay a box on a target
 
-Use `position-query` to select the anchor and `position-element` to select the
-floating element. Put these attributes on the trigger or container that owns
-the interaction:
+Use `position-query` to select the target and `position-element` to select the
+overlay box. `position-events` lists the events that update the box; listeners
+are attached directly to the element carrying these attributes:
 
 ```html
 <button
+  position-events="click"
   position-query="$this"
-  position-element="$top #popover"
-  position="bottom left"
-  position-offset="8"
->
-  Open popover
+  position-element="$top #target-box">
+  Show target box
 </button>
 
-<div id="popover" hidden>Popover content</div>
+<div id="target-box" class="target-box" hidden></div>
 ```
 
-Position resolves both queries when the trigger is activated. If
-`position-query` is omitted, the trigger is the anchor. Placement supports a
-3×3 grid: `top`, `middle`, or `bottom` combined with `left`, `center`, or
-`right` (for example, `top right` or `middle center`). The eight surrounding
-positions and the centered position are available. Add `cursor` to anchor to
-the current pointer coordinates when available, or `text` to anchor to the
-first visible character (for example, `top left cursor` or `top left text`). If
-the requested cursor or text anchor is unavailable, Position uses the queried
-element.
-`position-offset` controls the gap from the anchor;
-`position-padding` sets the collision boundary inset; and
-`position-collision="flip shift"` controls collision handling. The defaults
-are an 8px offset and padding, with flipping and shifting enabled.
+Position sets the box's `left`, `top`, `width`, and `height` to match the
+queried target. It includes the target's margins. The box is shown and hidden
+with the native `hidden` attribute; Position does not set `display`. Style the
+box with CSS and give it `position: fixed` or `position: absolute` so its
+coordinates apply.
 
-The floating element also receives a JavaScript `position` API when initialized:
+By default, the box matches the target element. Set `position-box="text"` to
+size it to the target's complete rendered text, including wrapped lines:
+
+```html
+<div
+  position-events="mouseover, mousemove, mouseout"
+  position-query="*:hover[]"
+  position-element="$top #text-box"
+  position-box="text">
+  <h2>A heading to inspect</h2>
+  <p>The text box follows all rendered lines.</p>
+</div>
+
+<div id="text-box" class="target-box" hidden></div>
+```
+
+Set `box-sizing: border-box` when the overlay's outside edges should match the
+measured box. Other CSS, including borders, padding, and child controls, can
+style or extend the overlay.
+
+When the box is shown, its `position` object exposes the active trigger, event,
+query matches, target, and measured box. Relayed iframe events keep both the
+inner event target and the iframe relay target available:
 
 ```js
-popover.position.place(anchor, { position: "bottom-start", offset: 8 });
-popover.position.unplace();
+toolbar.position.trigger; // element with position-query and position-events
+toolbar.position.event.target; // original target, including inside an iframe
+toolbar.position.event.relayTarget; // iframe element, when relayed
+toolbar.position.queryElement; // active matched element or selection range
+toolbar.position.queryElements; // all query matches
+toolbar.position.box.rect; // { top, right, bottom, left, width, height, x, y }
 ```
 
-## Follow hovered elements
+Events relay from same-origin iframe documents through the iframe element, so a
+position query element that contains the iframe can listen on its own event
+path just as it would for content in the same document. Cross-origin iframe
+contents remain subject to browser security boundaries.
 
-Add `:hover` to the anchor query to position a toolbar or popup against the
-deepest hovered match:
+For a text selection inside a same-origin iframe, listen to the relayed native
+`selectionchange` event and query `$selection`:
 
 ```html
 <div
-  position-query="*:hover[]"
-  position-element="$top #format-toolbar"
-  position="top left"
->
-  <!-- content to inspect -->
-</div>
-<div id="format-toolbar" hidden>Formatting actions</div>
+  position-events="selectionchange"
+  position-query="iframe $selection"
+  position-element="$top #selection-box"
+  position-box="text"></div>
 ```
 
-For a same-origin iframe, query its document with `$contentDocument`:
+The target box also receives a JavaScript `position` API when initialized:
 
-```html
-<iframe
-  position-query="$contentDocument *:hover[]"
-  position-element="$top #format-toolbar"
-></iframe>
-```
-
-Position tracks pointer movement inside same-origin frames and maps the target
-geometry into the parent document. Cross-origin frame contents cannot be
-queried by the parent page due to browser security boundaries.
-
-For selected text inside a same-origin iframe, use `$selection` as the anchor.
-The selection event is forwarded from the iframe element, and the floating
-element is positioned against the selected range:
-
-```html
-<div
-  position-query="$parent iframe $selection"
-  position-element="$top #format-toolbar"
-  position="top center"
-></div>
+```js
+box.position.place(anchor, { box: "text" });
+box.position.unplace();
 ```
 
 ## Drag elements

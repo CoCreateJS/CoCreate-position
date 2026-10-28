@@ -109,12 +109,9 @@
 			#anchored-panel {
 				position: fixed;
 				z-index: 3;
-				width: 220px;
-				padding: 14px;
+				box-sizing: border-box;
 				border: 1px solid #93a6ca;
-				border-radius: 8px;
-				background: #f1f5ff;
-				box-shadow: 0 6px 24px #1c2c4430;
+				pointer-events: none;
 			}
 
 			.hover-demo-grid {
@@ -154,12 +151,14 @@
 				position: fixed;
 				z-index: 20;
 				display: flex;
+				box-sizing: border-box;
 				gap: 4px;
 				padding: 5px;
 				border: 1px solid #bfc7d4;
 				border-radius: 8px;
 				background: #202938;
 				box-shadow: 0 5px 18px #17203344;
+				pointer-events: none;
 			}
 			#hover-format-toolbar[hidden] {
 				display: none !important;
@@ -295,25 +294,23 @@
 		</section>
 
 		<section class="demo-section">
-			<h2>Declarative placement with position-query</h2>
+			<h2>Overlay a box with position-query</h2>
 			<p class="muted">
-				Click the trigger to position the panel beside it.
+				Click the trigger to show a box that matches its margins and size.
 			</p>
 			<div class="anchor-row">
 				<button
 					id="placement-anchor"
 					type="button"
+					position-events="click"
 					position-query="$this"
-					position-element="$top #anchored-panel"
-					position="bottom left">
-					Open positioned panel
+					position-element="$top #anchored-panel">
+					Show target box
 				</button>
-				<span id="anchored-panel" hidden>
-					I’m positioned relative to the button.
-				</span>
+				<div id="anchored-panel" hidden></div>
 			</div>
-			<pre><code>&lt;button position-query="$this" position-element="$top #anchored-panel" position="bottom left"&gt;Open&lt;/button&gt;
-&lt;div id="anchored-panel"&gt;...&lt;/div&gt;</code></pre>
+			<pre><code>&lt;button position-events="click" position-query="$this" position-element="$top #target-box"&gt;Show target box&lt;/button&gt;
+&lt;div id="target-box" hidden&gt;&lt;/div&gt;</code></pre>
 		</section>
 
 		<section class="demo-section">
@@ -325,9 +322,10 @@
 			<div class="hover-demo-grid">
 				<div
 					class="hover-editor-card"
+					position-events="mouseover, mousemove, mouseout"
 					position-query="*:hover[]"
 					position-element="$top #hover-format-toolbar"
-					position="top left"
+					position-box="text"
 					contenteditable="true">
 					<h1>Page editor</h1>
 					<h2>Hover a heading</h2>
@@ -347,9 +345,10 @@
 				<iframe
 					class="hover-demo-frame"
 					title="Rich text editor inside an iframe"
+					position-events="mouseover, mousemove, mouseout"
 					position-query="$contentDocument *:hover[]"
 					position-element="$top #hover-format-toolbar"
-					position="top left"
+					position-box="text"
 					srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:18px;font:16px/1.5 system-ui,sans-serif;color:#202938}.editor{min-height:250px;padding:18px;border:1px solid #d9dee5;border-radius:9px}h1,h2{margin:0 0 10px}p{color:#596273}blockquote{margin:14px 0;padding-left:12px;border-left:3px solid #aab8d0;color:#596273}</style></head><body><div class="editor" contenteditable="true"><h1>Iframe editor</h1><h2>Hover a heading</h2><p>Hover inside the frame. Its document tracks the pointer and the parent positions the toolbar.</p><blockquote>This nested quote is another target.</blockquote><p><strong>Bold text</strong> and <em>italic text</em> are separate hover targets.</p></div></body></html>'></iframe>
 			</div>
 			<div
@@ -368,8 +367,8 @@
 				<button type="button" aria-label="Italic"><em>I</em></button>
 				<button type="button" aria-label="Link">↗</button>
 			</div>
-			<pre><code>&lt;div position-query="*:hover[]" position-element="$top #hover-format-toolbar" position="top left"&gt;...&lt;/div&gt;
-&lt;iframe position-query="$contentDocument *:hover[]" position-element="$top #hover-format-toolbar"&gt;...&lt;/iframe&gt;</code></pre>
+			<pre><code>&lt;div position-events="mouseover, mousemove, mouseout" position-query="*:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/div&gt;
+&lt;iframe position-events="mouseover, mousemove, mouseout" position-query="$contentDocument *:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/iframe&gt;</code></pre>
 		</section>
 
 		<section class="demo-section">

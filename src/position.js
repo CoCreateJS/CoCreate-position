@@ -4,7 +4,9 @@ import { dispatch } from "./helpers/events.js";
 const placementStates = new WeakMap();
 const triggerElements = new WeakMap();
 const positionEventBindings = new WeakMap();
-const positionConfigSelector = "[position-query], [position-element], [position-events], [position], [position-offset], [position-padding], [position-collision]";
+const positionFrames = new WeakMap();
+const pendingPositionEvents = new WeakMap();
+const positionConfigSelector = "[position-query], [position-events]";
 
 function getQueryAttribute(element, name) {
 	return element?.getAttributeNode?.(name)?.value ?? null;
@@ -22,36 +24,87 @@ function attachPlacement(element) {
 	});
 	position.el = element;
 	position.place = (anchor = element, options = {}) => place(element, anchor, options);
-	position.unplace = () => unplace(element);
+	position.unplace = () => {
+		unplace(element);
+		element.hidden = true;
+	};
 }
 
-function pointInDocument(point, sourceDocument, targetDocument) {
-	if (!point || !sourceDocument) return null;
-	let { x, y } = point;
-	let document = sourceDocument;
-	while (document !== targetDocument) {
-		const frame = document.defaultView?.frameElement;
-		if (!frame) return null;
-		const rect = frame.getBoundingClientRect();
-		const scaleX = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
-		const scaleY = frame.offsetHeight ? rect.height / frame.offsetHeight : 1;
-		x = rect.left + (frame.clientLeft + x) * scaleX;
-		y = rect.top + (frame.clientTop + y) * scaleY;
-		document = frame.ownerDocument;
+function getEventSnapshot(event, trigger) {
+	const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
+	const originalEvent = detail.originalEvent || event;
+	const target = detail.target || originalEvent?.target || event?.target || null;
+	const cursor = detail.cursor || (
+		Number.isFinite(originalEvent?.clientX) && Number.isFinite(originalEvent?.clientY)
+			? { x: originalEvent.clientX, y: originalEvent.clientY }
+			: null
+	);
+	const sourceDocument = detail.document ||
+		(target?.nodeType === 9 ? target : target?.ownerDocument) ||
+		originalEvent?.view?.document || null;
+	const relayTarget = detail.originalEvent ? event.target : null;
+	const pointer = {};
+	for (const key of ["pointerId", "pointerType", "isPrimary", "button", "buttons", "pressure", "tiltX", "tiltY", "twist", "clientX", "clientY", "pageX", "pageY", "screenX", "screenY"]) {
+		if (originalEvent?.[key] !== undefined) pointer[key] = originalEvent[key];
 	}
-	return { x, y };
+	const keyboard = {};
+	for (const key of ["key", "code", "repeat", "altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+		if (originalEvent?.[key] !== undefined) keyboard[key] = originalEvent[key];
+	}
+	const input = {};
+	for (const key of ["inputType", "data", "dataTransfer"]) {
+		if (originalEvent?.[key] !== undefined) input[key] = originalEvent[key];
+	}
+
+	return {
+		type: event?.type || originalEvent?.type || "",
+		target,
+		relatedTarget: detail.relatedTarget || originalEvent?.relatedTarget || null,
+		relayTarget,
+		frameElement: sourceDocument?.defaultView?.frameElement ||
+			(relayTarget?.tagName === "IFRAME" ? relayTarget : null),
+		currentTarget: trigger,
+		document: sourceDocument,
+		timeStamp: originalEvent?.timeStamp ?? event?.timeStamp ?? null,
+		cursor,
+		pointer,
+		keyboard,
+		input,
+		detail,
+		originalEvent
+	};
 }
 
-function getCursorPoint(event, targetDocument) {
-	const point = event?.detail?.cursor ||
-		(Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)
-			? { x: event.clientX, y: event.clientY }
-			: null);
-	const sourceDocument = event?.detail?.document ||
-		(event?.currentTarget?.nodeType === 9
-			? event.currentTarget
-			: event?.currentTarget?.contentDocument || event?.currentTarget?.ownerDocument);
-	return pointInDocument(point, sourceDocument, targetDocument);
+function getRectSnapshot(rect) {
+	if (!rect) return null;
+	return {
+		x: rect.left,
+		y: rect.top,
+		top: rect.top,
+		right: rect.right,
+		bottom: rect.bottom,
+		left: rect.left,
+		width: rect.width,
+		height: rect.height
+	};
+}
+
+function updatePositionContext(element, context) {
+	attachPlacement(element);
+	Object.assign(element.position, {
+		element,
+		trigger: context.trigger,
+		event: context.event,
+		query: context.query,
+		queryElement: context.queryElement,
+		queryElements: context.queryElements,
+		box: {
+			element,
+			type: context.boxType,
+			rect: context.rect || null
+		},
+		active: context.active
+	});
 }
 
 function place(element, anchor, options = {}) {
@@ -59,118 +112,81 @@ function place(element, anchor, options = {}) {
 	const anchorDocument = anchor.ownerDocument ||
 		anchor.startContainer?.ownerDocument || anchor.commonAncestorContainer?.ownerDocument;
 	if (!anchorDocument) return;
+	const targetDocument = element.ownerDocument;
+	const boxType = options.box || getQueryAttribute(element, "position-box") || "element";
+	const rect = getPositionBox(anchor, boxType, targetDocument);
+	if (!rect) return false;
+	element.hidden = false;
+
 	let state = placementStates.get(element);
 	if (!state) placementStates.set(element, state = {});
 	state.options = options;
-	if (state.anchor !== anchor) {
+	if (state.anchor !== anchor || state.boxType !== boxType) {
 		unplace(element);
 		state.anchor = anchor;
-		state.document = anchorDocument;
+		state.boxType = boxType;
+		state.documents = getDocumentChain(anchorDocument, targetDocument);
 		state.update = () => {
 			if (state.frame) return;
-			const view = anchorDocument.defaultView;
+			const view = targetDocument.defaultView;
 			state.frame = view.requestAnimationFrame(() => {
 				state.frame = null;
 				const currentAnchor = state.anchor;
 				const isConnected = currentAnchor?.isConnected ??
-					currentAnchor?.startContainer?.isConnected;
-				if (isConnected) place(element, currentAnchor, state.options);
+					currentAnchor?.startContainer?.isConnected ??
+					currentAnchor?.commonAncestorContainer?.isConnected;
+				if (!isConnected || !place(element, currentAnchor, state.options))
+					element.hidden = true;
 			});
 		};
-		anchorDocument.addEventListener("scroll", state.update, true);
-		anchorDocument.defaultView?.addEventListener("resize", state.update);
+		for (const document of state.documents) {
+			document.addEventListener("scroll", state.update, true);
+			document.defaultView?.addEventListener("resize", state.update);
+		}
 	}
 
-	const attribute = (name, fallback) => anchor.getAttribute?.(name) ?? fallback;
-	const placement = options.position || options.placement || attribute("position", "bottom-start");
-	const offset = Number(options.offset ?? attribute("position-offset", 8));
-	const padding = Number(options.padding ?? attribute("position-padding", 8));
-	const collision = (options.collision || attribute("position-collision", "flip shift")).split(/[\s,]+/);
-	const tokens = String(placement).trim().toLowerCase().split(/[\s-]+/).filter(Boolean);
-	const usesCursor = tokens.includes("cursor");
-	const usesText = tokens.includes("text");
-	const positionalTokens = tokens.filter(token => token !== "cursor" && token !== "text");
-	let row = "bottom";
-	let column = "center";
-	let side = null;
-	let sideAlign = "middle";
-	if (["top", "middle", "bottom"].includes(positionalTokens[0])) {
-		row = positionalTokens[0];
-		column = ({ start: "left", end: "right" })[positionalTokens[1]] || positionalTokens[1] || "center";
-	} else if (["left", "right"].includes(positionalTokens[0])) {
-		side = positionalTokens[0];
-		sideAlign = ({ start: "top", end: "bottom" })[positionalTokens[1]] || positionalTokens[1] || "middle";
-	} else if (positionalTokens[0] === "center") {
-		row = "middle";
-		column = "center";
-	}
-	const cursorPoint = usesCursor ? options.cursorPoint : null;
-	const anchorRect = cursorPoint
-		? { left: cursorPoint.x, top: cursorPoint.y, right: cursorPoint.x, bottom: cursorPoint.y, width: 0, height: 0 }
-		: (usesText && anchor.nodeType === 1 ? getTextRectInDocument(anchor, element.ownerDocument) : null) ||
-			getRectInDocument(anchor, element.ownerDocument);
-	if (!anchorRect) return;
-	const elementRect = getFloatingRect(element);
-	const container = element.parentElement;
-	const parentRect = container?.getBoundingClientRect() || { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
-	const view = element.ownerDocument.defaultView;
+	const view = targetDocument.defaultView;
 	const isFixed = view.getComputedStyle(element).position === "fixed";
-	const boundary = isFixed
-		? { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight }
-		: parentRect;
-	const getCoordinates = (currentRow, currentSide = side) => {
-		let left;
-		let top;
-		if (currentSide) {
-			left = currentSide === "left"
-				? anchorRect.left - elementRect.width - offset
-				: anchorRect.right + offset;
-			top = sideAlign === "top" ? anchorRect.top
-				: sideAlign === "bottom" ? anchorRect.bottom - elementRect.height
-					: anchorRect.top + (anchorRect.height - elementRect.height) / 2;
-		} else {
-			top = currentRow === "top" ? anchorRect.top - elementRect.height - offset
-				: currentRow === "bottom" ? anchorRect.bottom + offset
-					: anchorRect.top + (anchorRect.height - elementRect.height) / 2;
-			left = column === "left" ? anchorRect.left
-				: column === "right" ? anchorRect.right - elementRect.width
-					: anchorRect.left + (anchorRect.width - elementRect.width) / 2;
-		}
-		return { left, top };
-	};
-
-	let coordinates = getCoordinates(row);
-	if (collision.includes("flip")) {
-		const opposite = { top: "bottom", bottom: "top", left: "right", right: "left" };
-		const overflows =
-			(!side && row === "top" && coordinates.top < boundary.top + padding) ||
-			(!side && row === "bottom" && coordinates.top + elementRect.height > boundary.bottom - padding) ||
-			(side === "left" && coordinates.left < boundary.left + padding) ||
-			(side === "right" && coordinates.left + elementRect.width > boundary.right - padding);
-		if (overflows) {
-			if (side) side = opposite[side] || side;
-			else row = opposite[row] || row;
-			coordinates = getCoordinates(row);
-		}
-	}
-
-	if (collision.includes("shift")) {
-		coordinates.left = Math.min(Math.max(coordinates.left, boundary.left + padding),
-			Math.max(boundary.left + padding, boundary.right - elementRect.width - padding));
-		coordinates.top = Math.min(Math.max(coordinates.top, boundary.top + padding),
-			Math.max(boundary.top + padding, boundary.bottom - elementRect.height - padding));
-	}
-
+	const offsetParent = element.offsetParent;
+	const parentRect = offsetParent?.getBoundingClientRect();
 	element.style.right = "auto";
 	element.style.bottom = "auto";
-	element.style.left = (isFixed ? coordinates.left : coordinates.left - parentRect.left + (container?.scrollLeft || 0)) + "px";
-	element.style.top = (isFixed ? coordinates.top : coordinates.top - parentRect.top + (container?.scrollTop || 0)) + "px";
-	if (element.position) element.position.isSnap = false;
+	element.style.left = (isFixed || !parentRect
+		? rect.left
+		: rect.left - parentRect.left - offsetParent.clientLeft + offsetParent.scrollLeft) + "px";
+	element.style.top = (isFixed || !parentRect
+		? rect.top
+		: rect.top - parentRect.top - offsetParent.clientTop + offsetParent.scrollTop) + "px";
+	element.style.width = `${rect.width}px`;
+	element.style.height = `${rect.height}px`;
+	if (element.position) {
+		element.position.isSnap = false;
+		if (options.context) {
+			updatePositionContext(element, {
+				...options.context,
+				rect: getRectSnapshot(rect),
+				active: true
+			});
+		} else {
+			updatePositionContext(element, {
+				trigger: null,
+				event: null,
+				query: { selector: null, elements: [anchor], element: anchor },
+				queryElement: anchor,
+				queryElements: [anchor],
+				boxType,
+				rect: getRectSnapshot(rect),
+				active: true
+			});
+		}
+	}
 	dispatch(element, "element-positioned");
+	return true;
 }
 
 function mapRectToDocument(rect, sourceDocument, targetDocument) {
 	let document = sourceDocument;
+	if (!document || !targetDocument) return null;
 	while (document !== targetDocument) {
 		const frame = document.defaultView?.frameElement;
 		if (!frame) return null;
@@ -190,49 +206,65 @@ function mapRectToDocument(rect, sourceDocument, targetDocument) {
 	return rect;
 }
 
-function getRectInDocument(element, targetDocument) {
-	const sourceDocument = element.ownerDocument ||
-		element.startContainer?.ownerDocument || element.commonAncestorContainer?.ownerDocument;
-	return mapRectToDocument(element.getBoundingClientRect(), sourceDocument, targetDocument);
+function getDocumentChain(sourceDocument, targetDocument) {
+	const documents = [];
+	let document = sourceDocument;
+	while (document) {
+		documents.push(document);
+		if (document === targetDocument) return documents;
+		const frame = document.defaultView?.frameElement;
+		if (!frame) break;
+		document = frame.ownerDocument;
+	}
+	return documents;
 }
 
-function getFloatingRect(element) {
+function getRectInDocument(target, targetDocument) {
+	const sourceDocument = target.ownerDocument ||
+		target.startContainer?.ownerDocument || target.commonAncestorContainer?.ownerDocument;
+	return mapRectToDocument(target.getBoundingClientRect(), sourceDocument, targetDocument);
+}
+
+function getElementBoxInDocument(element, targetDocument) {
 	const rect = element.getBoundingClientRect();
-	if (rect.width > 0 && rect.height > 0) return rect;
-
-	const view = element.ownerDocument.defaultView;
-	const rects = [...element.querySelectorAll("*")]
-		.filter(child => {
-			const style = view.getComputedStyle(child);
-			return style.display !== "none" && style.visibility !== "hidden";
-		})
-		.map(child => child.getBoundingClientRect())
-		.filter(childRect => childRect.width > 0 || childRect.height > 0);
-	if (!rects.length) return rect;
-
-	const left = Math.min(...rects.map(childRect => childRect.left));
-	const top = Math.min(...rects.map(childRect => childRect.top));
-	const right = Math.max(...rects.map(childRect => childRect.right));
-	const bottom = Math.max(...rects.map(childRect => childRect.bottom));
-	return { left, top, right, bottom, width: right - left, height: bottom - top };
+	const style = element.ownerDocument.defaultView.getComputedStyle(element);
+	const margin = name => Number.parseFloat(style[name]) || 0;
+	const left = rect.left - margin("marginLeft");
+	const top = rect.top - margin("marginTop");
+	const right = rect.right + margin("marginRight");
+	const bottom = rect.bottom + margin("marginBottom");
+	return mapRectToDocument({ left, top, right, bottom, width: right - left, height: bottom - top },
+		element.ownerDocument, targetDocument);
 }
 
-function getTextRectInDocument(element, targetDocument) {
+function getTextBoxInDocument(element, targetDocument) {
 	const document = element.ownerDocument;
 	const walker = document.createTreeWalker(element, document.defaultView.NodeFilter.SHOW_TEXT);
+	const rects = [];
 	let textNode;
 	while ((textNode = walker.nextNode())) {
-		const value = textNode.nodeValue || "";
-		const offset = value.search(/\S/);
-		if (offset < 0) continue;
-		const characterLength = String.fromCodePoint(value.codePointAt(offset)).length;
+		if (!textNode.nodeValue) continue;
 		const range = document.createRange();
-		range.setStart(textNode, offset);
-		range.setEnd(textNode, offset + characterLength);
-		const rect = range.getClientRects()[0];
-		if (rect) return mapRectToDocument(rect, document, targetDocument);
+		range.selectNodeContents(textNode);
+		for (const rect of range.getClientRects()) {
+			if (rect.width || rect.height) rects.push(rect);
+		}
 	}
-	return null;
+	if (!rects.length) return null;
+	const left = Math.min(...rects.map(rect => rect.left));
+	const top = Math.min(...rects.map(rect => rect.top));
+	const right = Math.max(...rects.map(rect => rect.right));
+	const bottom = Math.max(...rects.map(rect => rect.bottom));
+	return mapRectToDocument({ left, top, right, bottom, width: right - left, height: bottom - top },
+		document, targetDocument);
+}
+
+function getPositionBox(anchor, type, targetDocument) {
+	if (anchor.nodeType === 1) {
+		if (String(type).toLowerCase() === "text") return getTextBoxInDocument(anchor, targetDocument);
+		return getElementBoxInDocument(anchor, targetDocument);
+	}
+	return getRectInDocument(anchor, targetDocument);
 }
 
 function deepest(elements) {
@@ -241,43 +273,61 @@ function deepest(elements) {
 }
 
 function placeFromTrigger(trigger) {
+	const event = pendingPositionEvents.get(trigger) || null;
+	pendingPositionEvents.delete(trigger);
 	const anchorQuery = getQueryAttribute(trigger, "position-query");
 	const elementQuery = getQueryAttribute(trigger, "position-element");
+	const previousElements = triggerElements.get(trigger) || new Set();
+	if (!elementQuery) {
+		for (const element of previousElements) clearPlacement(element);
+		triggerElements.delete(trigger);
+		return;
+	}
 	const selectionOperator = anchorQuery?.match(/\$selection/);
 	let anchor;
+	let queryElements = [];
 	if (selectionOperator) {
 		const prefix = anchorQuery.slice(0, selectionOperator.index).trim();
 		const sources = prefix ? trigger.queryElements({ selector: prefix }) : [trigger];
-		anchor = sources.find(source => source.selection)?.selection || null;
+		queryElements = sources;
+		for (const source of sources) {
+			const sourceDocument = source.nodeType === 9
+				? source
+				: source.contentDocument || source.ownerDocument;
+			const selection = sourceDocument?.getSelection?.();
+			if (selection && !selection.isCollapsed && selection.rangeCount) {
+				anchor = selection.getRangeAt(0).cloneRange();
+				break;
+			}
+		}
 	} else {
-		const anchors = trigger.queryElements({ selector: anchorQuery });
-		anchor = anchorQuery?.includes(":hover") ? deepest(anchors) : anchors[0];
+		queryElements = anchorQuery
+			? trigger.queryElements({ selector: anchorQuery })
+			: [trigger];
+		anchor = anchorQuery?.includes(":hover") ? deepest(queryElements) : queryElements[0];
 	}
 	const elements = trigger.queryElements({ selector: elementQuery });
-	const previousElements = triggerElements.get(trigger) || new Set();
 	const currentElements = new Set(elements);
 	for (const element of previousElements) {
 		if (!currentElements.has(element)) clearPlacement(element);
 	}
 	triggerElements.set(trigger, currentElements);
-	if (!anchor || !elementQuery) {
-		for (const element of currentElements) clearPlacement(element);
-		return;
-	}
-	const options = {};
-	for (const [option, attribute] of [
-		["position", "position"],
-		["offset", "position-offset"],
-		["padding", "position-padding"],
-		["collision", "position-collision"]
-	]) {
-		if (trigger.hasAttribute(attribute)) options[option] = trigger.getAttribute(attribute);
-	}
-	options.cursorPoint = trigger.positionCursorPoint;
+	if (!elementQuery) return;
+	const options = { box: getQueryAttribute(trigger, "position-box") || "element" };
+	const context = {
+		trigger,
+		event,
+		query: { selector: anchorQuery, elements: queryElements, element: anchor },
+		queryElement: anchor,
+		queryElements,
+		boxType: options.box,
+		rect: null,
+		active: Boolean(anchor)
+	};
+	options.context = context;
 	for (const element of elements) {
-		attachPlacement(element);
-		element.hidden = false;
-		element.position.place(anchor, options);
+		updatePositionContext(element, context);
+		if (!anchor || !element.position.place(anchor, options)) clearPlacement(element);
 	}
 }
 
@@ -285,20 +335,27 @@ function clearPlacement(element) {
 	if (!element) return;
 	element.position?.unplace?.();
 	element.hidden = true;
+	if (element.position) element.position.active = false;
 }
 
-function schedulePositionUpdate(element, cursorPoint) {
-	element.positionCursorPoint = cursorPoint;
-	if (element.positionFrame) return;
-	element.positionFrame = element.ownerDocument.defaultView.requestAnimationFrame(() => {
-		element.positionFrame = null;
+function schedulePositionUpdate(element, event) {
+	pendingPositionEvents.set(element, event);
+	if (positionFrames.has(element)) return;
+	const frame = element.ownerDocument.defaultView.requestAnimationFrame(() => {
+		positionFrames.delete(element);
 		placeFromTrigger(element);
 	});
+	positionFrames.set(element, frame);
 }
 
 function initPositionEvents(element) {
 	const value = getQueryAttribute(element, "position-events")?.trim() || "";
 	const existing = positionEventBindings.get(element);
+	if (!element.hasAttribute("position-query")) {
+		existing?.remove();
+		positionEventBindings.delete(element);
+		return;
+	}
 	const key = value;
 	if (existing?.key === key) return;
 	existing?.remove();
@@ -307,7 +364,7 @@ function initPositionEvents(element) {
 		positionEventBindings.delete(element);
 		return;
 	}
-	const update = event => schedulePositionUpdate(element, getCursorPoint(event, element.ownerDocument));
+	const update = event => schedulePositionUpdate(element, getEventSnapshot(event, element));
 	for (const event of events) element.addEventListener(event, update, true);
 	positionEventBindings.set(element, {
 		key,
@@ -317,37 +374,31 @@ function initPositionEvents(element) {
 
 function unplace(element) {
 	const state = placementStates.get(element);
-	if (!state?.anchor || !state.update) return;
-	state.document.removeEventListener("scroll", state.update, true);
-	state.document.defaultView?.removeEventListener("resize", state.update);
-	if (state.frame) state.document.defaultView?.cancelAnimationFrame(state.frame);
+	if (!state?.update) return;
+	for (const document of state.documents || []) {
+		document.removeEventListener("scroll", state.update, true);
+		document.defaultView?.removeEventListener("resize", state.update);
+	}
+	if (state.frame) element.ownerDocument.defaultView?.cancelAnimationFrame(state.frame);
 	state.anchor = null;
-	state.document = null;
+	state.boxType = null;
+	state.documents = null;
 	state.update = null;
 	state.frame = null;
 }
 
-function initTriggers(elements, schedule = true) {
-	for (const element of elements) {
-		initPositionEvents(element);
-		if (schedule && getQueryAttribute(element, "position-query") &&
-			getQueryAttribute(element, "position-element")?.trim()) {
-			schedulePositionUpdate(element);
-		}
-	}
+function initTriggers(elements) {
+	for (const element of elements) initPositionEvents(element);
 }
 
 export function init() {
 	refresh(document.documentElement);
 }
 
-export function refresh(node, schedule = true) {
+export function refresh(node) {
 	if (node?.nodeType !== 1) return;
-	if (node.hasAttribute("position-element") && !getQueryAttribute(node, "position-element")?.trim())
-		attachPlacement(node);
-	initTriggers([node], schedule);
-	initTriggers(node.querySelectorAll(positionConfigSelector), schedule);
-	for (const element of node.querySelectorAll('[position-element=""]')) attachPlacement(element);
+	initTriggers([node]);
+	initTriggers(node.querySelectorAll(positionConfigSelector));
 }
 
 observer.init({
@@ -360,8 +411,8 @@ observer.init({
 observer.init({
 	name: "positionPlacementAttributes",
 	types: ["attributes"],
-	attributeFilter: ["position-query", "position-events"],
-	callback: mutation => refresh(mutation.target, false)
+	attributeFilter: ["position-query", "position-element", "position-events", "position-box"],
+	callback: mutation => refresh(mutation.target)
 });
 
 init();
