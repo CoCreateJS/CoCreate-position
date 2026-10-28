@@ -1,11 +1,15 @@
 import observer from "@cocreate/observer";
-import { queryElements } from "@cocreate/utils";
 import { dispatch } from "./helpers/events.js";
 
 const placementStates = new WeakMap();
 const triggers = new WeakSet();
 const hoverTriggers = new WeakSet();
 const triggerElements = new WeakMap();
+const queryFrameDocuments = new WeakMap();
+
+function getQueryAttribute(element, name) {
+	return element?.getAttributeNode?.(name)?.value ?? null;
+}
 
 export function initPositionTargets(elements) {
 	for (const element of elements) attachPlacement(element);
@@ -138,15 +142,11 @@ function deepest(elements) {
 }
 
 function placeFromTrigger(trigger) {
-	const anchorQuery = trigger.getAttribute("position-query");
-	const elementQuery = trigger.getAttribute("position-element");
-	const anchors = anchorQuery
-		? queryElements({ element: trigger, selector: anchorQuery })
-		: [trigger];
+	const anchorQuery = getQueryAttribute(trigger, "position-query");
+	const elementQuery = getQueryAttribute(trigger, "position-element");
+	const anchors = trigger.queryElements({ selector: anchorQuery });
 	const anchor = anchorQuery?.includes(":hover") ? deepest(anchors) : anchors[0];
-	const elements = elementQuery
-		? queryElements({ element: trigger, selector: elementQuery })
-		: [];
+	const elements = trigger.queryElements({ selector: elementQuery });
 	const previousElements = triggerElements.get(trigger) || new Set();
 	const currentElements = new Set(elements);
 	for (const element of previousElements) {
@@ -179,38 +179,73 @@ function clearPlacement(element) {
 	element.hidden = true;
 }
 
-function initHoverTrigger(trigger) {
-	if (hoverTriggers.has(trigger) || !trigger.getAttribute("position-query")?.includes(":hover")) return;
-	hoverTriggers.add(trigger);
-	const update = () => {
-		if (trigger.positionHoverFrame) return;
-		trigger.positionHoverFrame = trigger.ownerDocument.defaultView.requestAnimationFrame(() => {
-			trigger.positionHoverFrame = null;
-			placeFromTrigger(trigger);
-		});
-	};
-	if (trigger.tagName === "IFRAME") {
-		const attachFrame = () => {
-			try {
-				const doc = trigger.contentDocument;
-				if (!doc || trigger.positionHoverDocument === doc) return;
-				trigger.positionHoverDocument = doc;
-				doc.addEventListener("mouseover", update);
-				doc.addEventListener("mousemove", update);
-				doc.addEventListener("mouseout", update);
-			} catch {
-				// Cross-origin iframe contents cannot be inspected.
-			}
+function scheduleTriggerUpdate(trigger) {
+	if (trigger.positionHoverFrame) return;
+	trigger.positionHoverFrame = trigger.ownerDocument.defaultView.requestAnimationFrame(() => {
+		trigger.positionHoverFrame = null;
+		placeFromTrigger(trigger);
+	});
+}
+
+function attachQueryFrame(trigger, frame, eventTypes) {
+	if (frame?.tagName !== "IFRAME") return;
+	try {
+		const doc = frame.contentDocument;
+		if (!doc) return;
+		let frames = queryFrameDocuments.get(trigger);
+		if (!frames) queryFrameDocuments.set(trigger, (frames = new WeakMap()));
+		let binding = frames.get(frame);
+		if (!binding) frames.set(frame, (binding = { document: null, listening: false }));
+		if (binding.document === doc) return;
+		binding.document = doc;
+		for (const type of eventTypes) {
+			doc.addEventListener(type, () => scheduleTriggerUpdate(trigger), true);
+		}
+		if (binding.listening) return;
+		binding.listening = true;
+		const refresh = () => {
+			attachQueryFrame(trigger, frame, eventTypes);
+			scheduleTriggerUpdate(trigger);
 		};
-		attachFrame();
-		trigger.addEventListener("load", attachFrame);
-		trigger.addEventListener("mouseleave", update);
-	} else {
-		trigger.addEventListener("mouseover", update);
-		trigger.addEventListener("mousemove", update);
-		trigger.addEventListener("mouseout", update);
-		trigger.addEventListener("mouseleave", update);
+		frame.addEventListener("load", refresh);
+		frame.addEventListener("editor-ready", refresh);
+	} catch {
+		// Cross-origin iframe contents cannot be inspected.
 	}
+}
+
+function initHoverTrigger(trigger) {
+	if (hoverTriggers.has(trigger)) return;
+	const anchorQuery = getQueryAttribute(trigger, "position-query") || "";
+	const hoverIndex = anchorQuery.indexOf("$hoveredElement");
+	const clickIndex = anchorQuery.indexOf("$clickedElement");
+	const contentDocumentIndex = anchorQuery.indexOf("$contentDocument");
+	const eventIndex = contentDocumentIndex >= 0
+		? contentDocumentIndex
+		: hoverIndex >= 0 ? hoverIndex : clickIndex;
+	const hasHoverQuery = anchorQuery.includes(":hover") || hoverIndex >= 0;
+	const hasClickQuery = clickIndex >= 0;
+	if (!hasHoverQuery && !hasClickQuery) return;
+	hoverTriggers.add(trigger);
+	const eventTypes = [];
+	if (hasHoverQuery) {
+		eventTypes.push("pointerover", "pointermove", "pointerout", "mouseover", "mousemove", "mouseout");
+	}
+	if (hasClickQuery) eventTypes.push("click");
+
+	if (trigger.tagName === "IFRAME") {
+		attachQueryFrame(trigger, trigger, eventTypes);
+		return;
+	}
+
+	if (eventIndex < 0) {
+		for (const type of ["mouseover", "mousemove", "mouseout", "mouseleave"])
+			trigger.addEventListener(type, () => scheduleTriggerUpdate(trigger));
+		return;
+	}
+	const frameQuery = anchorQuery.slice(0, eventIndex).trim();
+	for (const frame of trigger.queryElements({ selector: frameQuery }))
+		attachQueryFrame(trigger, frame, eventTypes);
 }
 
 function unplace(element) {
@@ -226,7 +261,7 @@ function unplace(element) {
 
 function initTriggers(elements) {
 	for (const trigger of elements) {
-		if (!trigger.getAttribute("position-element")?.trim()) continue;
+		if (!getQueryAttribute(trigger, "position-element")?.trim()) continue;
 		if (!triggers.has(trigger)) {
 			triggers.add(trigger);
 			trigger.addEventListener("click", () => {
@@ -243,7 +278,7 @@ export function init() {
 
 export function refresh(node) {
 	if (node?.nodeType !== 1) return;
-	if (node.hasAttribute("position-element") && !node.getAttribute("position-element")?.trim())
+	if (node.hasAttribute("position-element") && !getQueryAttribute(node, "position-element")?.trim())
 		attachPlacement(node);
 	initTriggers(node.matches("[position-element]") ? [node] : []);
 	initTriggers(node.querySelectorAll("[position-element]"));
