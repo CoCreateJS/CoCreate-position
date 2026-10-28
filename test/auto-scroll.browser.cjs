@@ -49,7 +49,7 @@ after(async () => {
     if (directory) fs.rmSync(directory, { recursive: true, force: true });
 });
 
-async function fixture(run, { nested = false, clone = false } = {}) {
+async function fixture(run, { nested = false, clone = false, snap = false, empty = false } = {}) {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
     page.setDefaultTimeout(5000);
     const errors = [], requests = [];
@@ -64,18 +64,18 @@ async function fixture(run, { nested = false, clone = false } = {}) {
             window.positionErrors = [];
             document.addEventListener('position-error', event => positionErrors.push(event.detail.error.message), true);
         });
-        await page.evaluate(({ nested, clone }) => {
+        await page.evaluate(({ nested, clone, snap, empty }) => {
             document.body.style.margin = '0';
             const scope = document.createElement('section');
             scope.id = 'scope';
             scope.setAttribute(clone ? 'clonable-query' : 'draggable-query', '.card[]');
-            scope.setAttribute('droppable-query', '.drop[]');
+            scope.setAttribute(snap ? 'snappable-query' : 'droppable-query', '.drop[]');
             scope.innerHTML = '<header style="height:36px"><div id="source" class="card" style="width:100px;height:36px;user-select:none">drag</div></header>';
             const scroller = document.createElement('div');
             scroller.id = 'scroller';
             scroller.className = 'drop';
             scroller.style.cssText = 'margin:40px 80px;width:260px;height:220px;overflow-y:auto;scroll-behavior:smooth';
-            for (let index = 0; index < 30; index++) {
+            for (let index = 0; index < (empty ? 0 : 30); index++) {
                 const item = document.createElement('div');
                 item.textContent = `item ${index}`;
                 item.style.height = '44px';
@@ -93,7 +93,7 @@ async function fixture(run, { nested = false, clone = false } = {}) {
                 scope.append(outer);
             } else scope.append(scroller);
             document.body.append(scope);
-        }, { nested, clone });
+        }, { nested, clone, empty, snap });
         await page.addStyleTag({ url: origin + '/CoCreate-position.css' });
         await page.addScriptTag({ url: origin + '/CoCreate-position.js' });
         await page.waitForFunction(() => !!document.querySelector('#scope').positionDragDelegation);
@@ -114,6 +114,35 @@ async function pointAt(page, edge, inset = 3) {
         edge === 'top' ? box.y + inset : edge === 'middle' ? box.y + box.height / 2 : box.y + box.height - inset);
 }
 async function scrollTop(page) { return page.locator('#scroller').evaluate(node => node.scrollTop); }
+
+test('a dragged item can snap back into its former container when it is the only child', () => fixture(async page => {
+    await startDrag(page);
+    const box = await page.locator('#scroller').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForFunction(() => {
+        const source = document.querySelector('#source');
+        return source.position.reference?.container === document.querySelector('#scroller');
+    });
+    await page.mouse.up();
+    await page.waitForFunction(() => {
+        const source = document.querySelector('#source');
+        return source.parentElement === document.querySelector('#scroller') && source.hasAttribute('snapped');
+    });
+
+    await startDrag(page);
+    await page.mouse.move(700, 600);
+    await page.waitForTimeout(60);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForFunction(() => {
+        const source = document.querySelector('#source');
+        return source.position.reference?.container === document.querySelector('#scroller');
+    });
+    await page.mouse.up();
+    await page.waitForFunction(() => {
+        const source = document.querySelector('#source');
+        return source.parentElement === document.querySelector('#scroller') && source.hasAttribute('snapped');
+    });
+}, { snap: true, empty: true }));
 
 // Real browser drag sessions exercise the module loader, engine, hit testing,
 // scroll containers, and insertion references together.

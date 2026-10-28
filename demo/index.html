@@ -147,23 +147,37 @@
 				border-radius: 9px;
 				background: white;
 			}
-			#hover-format-toolbar {
+			.hover-position-toolbar {
 				position: fixed;
 				z-index: 20;
-				display: flex;
+				display: block;
 				box-sizing: border-box;
-				gap: 4px;
-				padding: 5px;
-				border: 1px solid #bfc7d4;
-				border-radius: 8px;
-				background: #202938;
-				box-shadow: 0 5px 18px #17203344;
 				pointer-events: none;
 			}
-			#hover-format-toolbar[hidden] {
+			.hover-position-toolbar[hidden] {
 				display: none !important;
 			}
-			#hover-format-toolbar button {
+			.hover-position-tools {
+				position: absolute;
+				top: 0;
+				left: 0;
+				display: flex;
+				gap: 4px;
+				padding: 5px;
+				transform: translateY(-100%);
+				border: 1px solid #bfc7d4;
+				border-radius: 8px 8px 0 0;
+				background: #202938;
+				box-shadow: 0 5px 18px #17203344;
+				pointer-events: auto;
+			}
+			.hover-position-outline {
+				width: 100%;
+				height: 100%;
+				border: 1px solid #557fd0;
+				pointer-events: none;
+			}
+			.hover-position-tools button {
 				min-width: 34px;
 				padding: 5px 8px;
 				border: 0;
@@ -171,7 +185,7 @@
 				color: white;
 				background: transparent;
 			}
-			#hover-format-toolbar button:hover {
+			.hover-position-tools button:hover {
 				background: #ffffff26;
 			}
 
@@ -317,7 +331,8 @@
 			<h2>Follow hovered content in a page and an iframe</h2>
 			<p class="muted">
 				Hover headings, paragraphs, or inline content in either editor.
-				The same formatting toolbar follows the deepest hovered element.
+				The outline follows the hovered text while the toolbar controls sit
+				just above its bounds.
 			</p>
 			<div class="hover-demo-grid">
 				<div
@@ -353,22 +368,30 @@
 			</div>
 			<div
 				id="hover-format-toolbar"
+				class="hover-position-toolbar"
 				hidden
 				aria-label="Formatting toolbar">
-				<button type="button" aria-label="Heading 1">
-					<strong>H1</strong>
-				</button>
-				<button type="button" aria-label="Heading 2">
-					<strong>H2</strong>
-				</button>
-				<button type="button" aria-label="Bold">
-					<strong>B</strong>
-				</button>
-				<button type="button" aria-label="Italic"><em>I</em></button>
-				<button type="button" aria-label="Link">↗</button>
+				<div class="hover-position-tools">
+					<button type="button" aria-label="Heading 1">
+						<strong>H1</strong>
+					</button>
+					<button type="button" aria-label="Heading 2">
+						<strong>H2</strong>
+					</button>
+					<button type="button" aria-label="Bold">
+						<strong>B</strong>
+					</button>
+					<button type="button" aria-label="Italic"><em>I</em></button>
+					<button type="button" aria-label="Link">↗</button>
+				</div>
+				<div class="hover-position-outline"></div>
 			</div>
 			<pre><code>&lt;div position-events="mouseover, mousemove, mouseout" position-query="*:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/div&gt;
-&lt;iframe position-events="mouseover, mousemove, mouseout" position-query="$contentDocument *:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/iframe&gt;</code></pre>
+&lt;iframe position-events="mouseover, mousemove, mouseout" position-query="$contentDocument *:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/iframe&gt;
+&lt;div id="hover-format-toolbar" class="hover-position-toolbar" hidden&gt;
+  &lt;div class="hover-position-tools"&gt;...toolbar controls...&lt;/div&gt;
+  &lt;div class="hover-position-outline"&gt;&lt;/div&gt;
+&lt;/div&gt;</code></pre>
 		</section>
 
 		<section class="demo-section">

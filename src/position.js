@@ -1,4 +1,5 @@
 import observer from "@cocreate/observer";
+import { queryElements } from "@cocreate/utils";
 import { dispatch } from "./helpers/events.js";
 
 const placementStates = new WeakMap();
@@ -92,11 +93,10 @@ function getRectSnapshot(rect) {
 function updatePositionContext(element, context) {
 	attachPlacement(element);
 	Object.assign(element.position, {
-		element,
+		element: context.queryElement,
 		trigger: context.trigger,
 		event: context.event,
 		query: context.query,
-		queryElement: context.queryElement,
 		queryElements: context.queryElements,
 		box: {
 			element,
@@ -285,11 +285,11 @@ function placeFromTrigger(trigger) {
 	}
 	const selectionOperator = anchorQuery?.match(/\$selection/);
 	let anchor;
-	let queryElements = [];
+	let matchedElements = [];
 	if (selectionOperator) {
 		const prefix = anchorQuery.slice(0, selectionOperator.index).trim();
-		const sources = prefix ? trigger.queryElements({ selector: prefix }) : [trigger];
-		queryElements = sources;
+		const sources = prefix ? queryElements({ element: trigger, selector: prefix }) : [trigger];
+		matchedElements = sources;
 		for (const source of sources) {
 			const sourceDocument = source.nodeType === 9
 				? source
@@ -301,12 +301,12 @@ function placeFromTrigger(trigger) {
 			}
 		}
 	} else {
-		queryElements = anchorQuery
-			? trigger.queryElements({ selector: anchorQuery })
+		matchedElements = anchorQuery
+			? queryElements({ element: trigger, selector: anchorQuery })
 			: [trigger];
-		anchor = anchorQuery?.includes(":hover") ? deepest(queryElements) : queryElements[0];
+		anchor = anchorQuery?.includes(":hover") ? deepest(matchedElements) : matchedElements[0];
 	}
-	const elements = trigger.queryElements({ selector: elementQuery });
+	const elements = queryElements({ element: trigger, selector: elementQuery });
 	const currentElements = new Set(elements);
 	for (const element of previousElements) {
 		if (!currentElements.has(element)) clearPlacement(element);
@@ -317,9 +317,9 @@ function placeFromTrigger(trigger) {
 	const context = {
 		trigger,
 		event,
-		query: { selector: anchorQuery, elements: queryElements, element: anchor },
+		query: { selector: anchorQuery, elements: matchedElements, element: anchor },
 		queryElement: anchor,
-		queryElements,
+		queryElements: matchedElements,
 		boxType: options.box,
 		rect: null,
 		active: Boolean(anchor)

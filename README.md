@@ -90,7 +90,7 @@ inner event target and the iframe relay target available:
 toolbar.position.trigger; // element with position-query and position-events
 toolbar.position.event.target; // original target, including inside an iframe
 toolbar.position.event.relayTarget; // iframe element, when relayed
-toolbar.position.queryElement; // active matched element or selection range
+toolbar.position.element; // active matched element or selection range
 toolbar.position.queryElements; // all query matches
 toolbar.position.box.rect; // { top, right, bottom, left, width, height, x, y }
 ```

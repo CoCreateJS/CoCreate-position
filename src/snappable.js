@@ -304,7 +304,9 @@ const snappableMethods = {
 
 			if (!container) {
 				element = null;
-			} else if ([...container.children].filter(child => !child.hasAttribute("position-marker")).length === 0) {
+			} else if ([...container.children].filter(child =>
+				!child.hasAttribute("position-marker") && child !== this.el && !this.el.contains(child)
+			).length === 0) {
 				element = container;
 				isEmptyContainer = true;
 			} else {
