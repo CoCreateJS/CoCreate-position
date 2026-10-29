@@ -1,7 +1,20 @@
-import { dispatch } from "../helpers/events.js";
+import { dispatch, normalizeEvent } from "../helpers/events.js";
 import { hasSelection } from "@cocreate/utils";
 
 let autoScrollPromise;
+
+function mapPointToTop(doc, x, y) {
+	while (doc?.defaultView?.frameElement) {
+		const frame = doc.defaultView.frameElement;
+		const rect = frame.getBoundingClientRect();
+		const scaleX = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
+		const scaleY = frame.offsetHeight ? rect.height / frame.offsetHeight : 1;
+		x = rect.left + (frame.clientLeft + x) * scaleX;
+		y = rect.top + (frame.clientTop + y) * scaleY;
+		doc = frame.ownerDocument;
+	}
+	return { x, y, document: doc };
+}
 
 function loadAutoScroll() {
     autoScrollPromise ||= import(/* webpackChunkName: "position-auto-scroll" */ "../autoScroll.js")
@@ -87,24 +100,33 @@ position.prototype = {
 
             this._documentMouseMove = function (e) {
                 if (!self.clickedInfo?.isMoving) return;
-                e.preventDefault();
+                if (e.detail?.document?.defaultView?.frameElement) return;
+                const pointerEvent = normalizeEvent(e);
+                pointerEvent.preventDefault();
                 self._clearDocumentSelection();
-                self._onMove(e);
+                self._onMove(pointerEvent, self._getFrameReference?.(e));
             };
             this._documentMouseUp = function (e) {
                 if (!self.clickedInfo?.isMoving) return;
-                self._onUp(e);
-                e.preventDefault();
+                if (e.detail?.document?.defaultView?.frameElement) return;
+                const pointerEvent = normalizeEvent(e);
+                self._onUp(pointerEvent, false, self._getFrameReference?.(e));
+                pointerEvent.preventDefault();
             };
             this._documentTouchMove = function (e) {
-                if (!self.clickedInfo?.isMoving || !e.touches.length) return;
-                e.preventDefault();
+                const pointerEvent = normalizeEvent(e);
+                if (!self.clickedInfo?.isMoving || !pointerEvent.touches?.length) return;
+                pointerEvent.preventDefault();
                 self._clearDocumentSelection();
-                self._onMove(e.touches[0]);
+                const touch = pointerEvent.touches[0];
+                self._onMove(touch, self._getFrameReference?.(e, touch));
             };
             this._documentTouchEnd = function (e) {
                 if (!self.clickedInfo?.isMoving) return;
-                self._onUp(e.changedTouches?.[0], e.type === "touchcancel");
+                if (e.detail?.document?.defaultView?.frameElement) return;
+                const pointerEvent = normalizeEvent(e);
+                const touch = pointerEvent.changedTouches?.[0] || pointerEvent;
+                self._onUp(touch, pointerEvent.type === "touchcancel", self._getFrameReference?.(e, touch));
             };
             this._documentBlur = function () {
                 self._onUp(null, true);
@@ -121,13 +143,15 @@ position.prototype = {
     },
 
     _handlePointerDown: function (event) {
-        if (event.which > 1) return;
-        if (!event.__positionDelegated) {
+        const delegated = !!event.__positionDelegated;
+        const pointerEvent = normalizeEvent(event);
+        if (pointerEvent.which > 1) return;
+        if (!delegated) {
             if (this._shouldDelegateDrag?.()) return;
             this.options.dragType = "draggable";
             event.__positionHandled = true;
         }
-        this._delayDragStart(event, !!event.__positionDelegated);
+        this._delayDragStart(pointerEvent, delegated);
     },
 
     _delayDragStart: function (event, delegated = false) {
@@ -192,7 +216,7 @@ position.prototype = {
             this.clickedInfo = null;
             return;
         }
-        this.dragScope = delegated && this.options.dragScope?.contains(this.el)
+        this.dragScope = delegated && this.options.dragScope?.isConnected
             ? this.options.dragScope
             : null;
         this.dragType = this.options.dragType || "draggable";
@@ -225,6 +249,24 @@ position.prototype = {
         this.dragOriginRect = this.el.getBoundingClientRect();
         this.dragStartClientX = e.clientX;
         this.dragStartClientY = e.clientY;
+        const sourceDocument = this.el.ownerDocument;
+        this.dragSourceFrame = sourceDocument.defaultView?.frameElement || null;
+        this.dragPreviewDocument = sourceDocument;
+        this.dragPreviewRect = this.dragOriginRect;
+        this.dragPreviewOffset = null;
+        if (this.dragSourceFrame) {
+			const topLeft = mapPointToTop(sourceDocument, this.dragOriginRect.left, this.dragOriginRect.top);
+			const bottomRight = mapPointToTop(sourceDocument, this.dragOriginRect.right, this.dragOriginRect.bottom);
+			const pointer = mapPointToTop(sourceDocument, this.dragStartClientX, this.dragStartClientY);
+			this.dragPreviewDocument = pointer.document;
+			this.dragPreviewRect = {
+				left: topLeft.x,
+				top: topLeft.y,
+				width: bottomRight.x - topLeft.x,
+				height: bottomRight.y - topLeft.y
+			};
+			this.dragPreviewOffset = { x: pointer.x - topLeft.x, y: pointer.y - topLeft.y };
+		}
         this.dragOriginOffsetParent = this.el.offsetParent || this.el.parentElement;
         const computed = getComputedStyle(this.el);
         this.dragOriginPosition = computed.position;
@@ -240,20 +282,22 @@ position.prototype = {
             width: [style.getPropertyValue("--position-moving-width"), style.getPropertyPriority("--position-moving-width")],
             height: [style.getPropertyValue("--position-moving-height"), style.getPropertyPriority("--position-moving-height")]
         };
+        this._createFrameOverlays?.();
     },
 
     _onMove: function (e, reference) {
+        const pointerDocument = reference?.document ?? e.document ?? this.el.ownerDocument;
         this.autoScrollPointer = {
             x: reference?.x ?? e.clientX,
             y: reference?.y ?? e.clientY,
-            document: reference?.document ?? this.el.ownerDocument
+            document: pointerDocument
         };
         this.autoScroll?.update(this.autoScrollPointer);
         this._startMoving(e);
         this._updateSnappableReference?.(
             reference?.x ?? e.clientX,
             reference?.y ?? e.clientY,
-            reference?.document ?? this.el.ownerDocument,
+            pointerDocument,
             reference?.element
         );
         this.__getBoundStatus(e)
@@ -299,9 +343,11 @@ position.prototype = {
     },
 
     _createDragGhost: function () {
-        const doc = this.el.ownerDocument;
-        const ghost = this.el.cloneNode(true);
-        const computed = getComputedStyle(this.el);
+        const doc = this.dragPreviewDocument || this.el.ownerDocument;
+        const ghost = doc === this.el.ownerDocument
+            ? this.el.cloneNode(true)
+            : doc.importNode(this.el, true);
+        const computed = this.el.ownerDocument.defaultView.getComputedStyle(this.el);
         for (let i = 0; i < computed.length; i++) {
             const property = computed[i];
             ghost.style.setProperty(property, computed.getPropertyValue(property), computed.getPropertyPriority(property));
@@ -319,10 +365,11 @@ position.prototype = {
             for (const attribute of activationAttributes) element.removeAttribute(attribute);
         }
         ghost.style.position = "fixed";
-        ghost.style.left = this.dragOriginRect.left + "px";
-        ghost.style.top = this.dragOriginRect.top + "px";
-        ghost.style.width = this.dragOriginRect.width + "px";
-        ghost.style.height = this.dragOriginRect.height + "px";
+        const rect = this.dragPreviewRect || this.dragOriginRect;
+        ghost.style.left = rect.left + "px";
+        ghost.style.top = rect.top + "px";
+        ghost.style.width = rect.width + "px";
+        ghost.style.height = rect.height + "px";
         ghost.style.margin = "0";
         ghost.style.pointerEvents = "none";
         ghost.style.zIndex = "2147483647";
@@ -332,13 +379,15 @@ position.prototype = {
 
     _moveDragPreview: function () {
         if (!this.clickedInfo) return;
-        const left = this.point.clientX - this.clickedInfo.x;
-        const top = this.point.clientY - this.clickedInfo.y;
+        const offset = this.dragPreviewOffset || this.clickedInfo;
+        const left = this.point.clientX - offset.x;
+        const top = this.point.clientY - offset.y;
         if (this.dragGhostEl) {
             this.dragGhostEl.style.left = left + "px";
             this.dragGhostEl.style.top = top + "px";
         }
         if (this.dragType === "clonable") return;
+        if (this.dragSourceFrame) return;
         // The moving class makes the element fixed while dragging, so every
         // positioning mode must use viewport coordinates and preserve the
         // pointer's original offset within the element.

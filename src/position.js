@@ -1,5 +1,6 @@
 import observer from "@cocreate/observer";
 import { queryElements } from "@cocreate/utils";
+import { relayEvents } from "@cocreate/utils/iframe";
 import { resolveEventOperator } from "./eventOperator.js";
 import { dispatch } from "./helpers/events.js";
 
@@ -12,6 +13,13 @@ const positionConfigSelector = "[position-query], [position-events]";
 
 function getQueryAttribute(element, name) {
 	return element?.getAttribute?.(name) ?? null;
+}
+
+function getPositionEvents(value) {
+	const aliases = { hover: ["mouseover", "mousemove", "mouseout"] };
+	return [...new Set((value || "").split(",")
+		.flatMap(event => aliases[event.trim().toLowerCase()] || [event.trim()])
+		.filter(Boolean))];
 }
 
 export function initPositionTargets(elements) {
@@ -366,7 +374,7 @@ function initPositionEvents(element) {
 	const key = value;
 	if (existing?.key === key) return;
 	existing?.remove();
-	const events = value.split(",").map(event => event.trim()).filter(Boolean);
+	const events = getPositionEvents(value);
 	if (!events.length) {
 		positionEventBindings.delete(element);
 		return;
@@ -400,6 +408,7 @@ function initTriggers(elements) {
 
 export function init() {
 	refresh(document.documentElement);
+	relayEvents(document.querySelectorAll("iframe"));
 }
 
 export function refresh(node) {
@@ -407,6 +416,13 @@ export function refresh(node) {
 	initTriggers([node]);
 	initTriggers(node.querySelectorAll(positionConfigSelector));
 }
+
+observer.init({
+	name: "positionIframeEventRelayAddedNodes",
+	types: ["addedNodes"],
+	selector: "iframe",
+	callback: mutation => relayEvents([mutation.target])
+});
 
 observer.init({
 	name: "positionPlacementAddedNodes",

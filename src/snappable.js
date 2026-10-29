@@ -1,5 +1,6 @@
 import observer from "@cocreate/observer";
 import { queryElements } from "@cocreate/utils";
+import { normalizeEvent } from "./helpers/events.js";
 import Position from "./draggable/engine.js";
 import { initElement } from "./draggable.js";
 
@@ -151,6 +152,7 @@ const snappableMethods = {
 		this.reference = null;
 		this._setActiveDroppable(null);
 		this._removePositionMarker();
+		this._initReferenceTracking();
 	},
 
 	_updateSnappableReference(x, y, doc, hoveredElement) {
@@ -165,7 +167,7 @@ const snappableMethods = {
 			this._updateReference(
 				reference?.x ?? event.clientX,
 				reference?.y ?? event.clientY,
-				reference?.document ?? this.el.ownerDocument,
+				reference?.document ?? event.document ?? this.el.ownerDocument,
 				reference?.element
 			);
 	},
@@ -190,6 +192,50 @@ const snappableMethods = {
 	_clearSnappableState() {
 		this._removePositionMarker();
 		this._setActiveDroppable(null);
+		this._removeFrameOverlays();
+	},
+
+	_createFrameOverlays() {
+		if (!this.dropQuerySelector || this.frameOverlays?.length) return;
+		let topDocument;
+		try { topDocument = this.el.ownerDocument.defaultView.top.document; } catch {}
+		if (!topDocument) return;
+
+		this.frameOverlays = [];
+		for (const frame of topDocument.querySelectorAll("iframe")) {
+			try {
+				if (!frame.contentDocument) continue;
+				const rect = frame.getBoundingClientRect();
+				const overlay = topDocument.createElement("div");
+				overlay.setAttribute("aria-hidden", "true");
+				overlay.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;z-index:2147483646;background:transparent;border:0;pointer-events:auto;cursor:grabbing`;
+				overlay.__positionFrame = frame;
+				(topDocument.body || topDocument.documentElement).appendChild(overlay);
+				this.frameOverlays.push(overlay);
+			} catch {}
+		}
+	},
+
+	_getFrameReference(event, pointer = event) {
+		const frame = event?.target?.__positionFrame;
+		if (!frame || !pointer || !Number.isFinite(pointer.clientX) || !Number.isFinite(pointer.clientY)) return null;
+		try {
+			const doc = frame.contentDocument;
+			if (!doc) return null;
+			const rect = frame.getBoundingClientRect();
+			const scaleX = frame.offsetWidth ? rect.width / frame.offsetWidth : 1;
+			const scaleY = frame.offsetHeight ? rect.height / frame.offsetHeight : 1;
+			const x = (pointer.clientX - rect.left) / scaleX - frame.clientLeft;
+			const y = (pointer.clientY - rect.top) / scaleY - frame.clientTop;
+			return { x, y, document: doc, element: doc.elementsFromPoint(x, y)[0] || null };
+		} catch {
+			return null;
+		}
+	},
+
+	_removeFrameOverlays() {
+		for (const overlay of this.frameOverlays || []) overlay.remove();
+		this.frameOverlays = null;
 	},
 
 	_initReferenceTracking() {
@@ -206,6 +252,8 @@ const snappableMethods = {
 			} catch {}
 		};
 		this.el.ownerDocument.querySelectorAll("iframe").forEach(watchFrame);
+		const enclosingFrame = this.el.ownerDocument.defaultView?.frameElement;
+		if (enclosingFrame) watchFrame(enclosingFrame);
 		const MutationObserver = this.el.ownerDocument.defaultView.MutationObserver;
 		this.referenceObserver = new MutationObserver(mutations => {
 			for (const mutation of mutations) for (const node of mutation.addedNodes) {
@@ -466,14 +514,15 @@ function initScopes(scopes) {
 
 		const startDrag = event => {
 			if (event.__positionHandled) return;
+			const pointerEvent = normalizeEvent(event);
 			const draggableQuery = scope.getAttribute("draggable-query");
 			const clonableQuery = scope.getAttribute("clonable-query");
 			const draggableMatches = new Set(draggableQuery ? queryElements({ element: scope, selector: draggableQuery }) : []);
 			const clonableMatches = new Set(clonableQuery ? queryElements({ element: scope, selector: clonableQuery }) : []);
-			let element = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
-			while (element && element !== scope && !draggableMatches.has(element) && !clonableMatches.has(element))
+			let element = pointerEvent.target?.nodeType === 1 ? pointerEvent.target : pointerEvent.target?.parentElement;
+			while (element && !draggableMatches.has(element) && !clonableMatches.has(element))
 				element = element.parentElement;
-			if (!element || element === scope || (!draggableMatches.has(element) && !clonableMatches.has(element))) return;
+			if (!element || (!draggableMatches.has(element) && !clonableMatches.has(element))) return;
 			const dragType = clonableMatches.has(element) ? "clonable" : "draggable";
 			if (!element.position?._positionController)
 				initElement(element, { draggable: true, dragScope: scope, dragType, delegated: true });

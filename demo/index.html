@@ -191,7 +191,7 @@
 
 			.boards {
 				display: grid;
-				grid-template-columns: repeat(3, minmax(0, 1fr));
+				grid-template-columns: repeat(4, minmax(0, 1fr));
 				gap: 16px;
 			}
 			.board-group + .board-group {
@@ -224,6 +224,11 @@
 				border: 0;
 				border-radius: 6px;
 				background: #fafbfd;
+			}
+			.board-frame.drop-zone-frame {
+				box-sizing: border-box;
+				border: 2px dashed #bdc7d4;
+				border-radius: 8px;
 			}
 			.drop-item,
 			.copy-item {
@@ -337,7 +342,7 @@
 			<div class="hover-demo-grid">
 				<div
 					class="hover-editor-card"
-					position-events="mouseover, mousemove, mouseout"
+					position-events="hover"
 					position-query="*:hover[]"
 					position-element="$top #hover-format-toolbar"
 					position-box="text"
@@ -360,11 +365,11 @@
 				<iframe
 					class="hover-demo-frame"
 					title="Rich text editor inside an iframe"
-					position-events="mouseover, mousemove, mouseout"
+					position-events="hover"
 					position-query="$contentDocument *:hover[]"
 					position-element="$top #hover-format-toolbar"
 					position-box="text"
-					srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:18px;font:16px/1.5 system-ui,sans-serif;color:#202938}.editor{min-height:250px;padding:18px;border:1px solid #d9dee5;border-radius:9px}h1,h2{margin:0 0 10px}p{color:#596273}blockquote{margin:14px 0;padding-left:12px;border-left:3px solid #aab8d0;color:#596273}</style></head><body><div class="editor" contenteditable="true"><h1>Iframe editor</h1><h2>Hover a heading</h2><p>Hover inside the frame. Its document tracks the pointer and the parent positions the toolbar.</p><blockquote>This nested quote is another target.</blockquote><p><strong>Bold text</strong> and <em>italic text</em> are separate hover targets.</p></div></body></html>'></iframe>
+					srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>html,body{box-sizing:border-box;min-height:100%;margin:0}body{padding:18px;font:16px/1.5 system-ui,sans-serif;color:#202938}h1,h2{margin:0 0 10px}p{color:#596273}blockquote{margin:14px 0;padding-left:12px;border-left:3px solid #aab8d0;color:#596273}</style></head><body contenteditable="true"><h1>Iframe editor</h1><h2>Hover a heading</h2><p>Hover inside the frame. Its document tracks the pointer and the parent positions the toolbar.</p><blockquote>This nested quote is another target.</blockquote><p><strong>Bold text</strong> and <em>italic text</em> are separate hover targets.</p></body></html>'></iframe>
 			</div>
 			<div
 				id="hover-format-toolbar"
@@ -386,8 +391,8 @@
 				</div>
 				<div class="hover-position-outline"></div>
 			</div>
-			<pre><code>&lt;div position-events="mouseover, mousemove, mouseout" position-query="*:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/div&gt;
-&lt;iframe position-events="mouseover, mousemove, mouseout" position-query="$contentDocument *:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/iframe&gt;
+			<pre><code>&lt;div position-events="hover" position-query="*:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/div&gt;
+&lt;iframe position-events="hover" position-query="$contentDocument *:hover[]" position-element="$top #hover-format-toolbar" position-box="text"&gt;...&lt;/iframe&gt;
 &lt;div id="hover-format-toolbar" class="hover-position-toolbar" hidden&gt;
   &lt;div class="hover-position-tools"&gt;...toolbar controls...&lt;/div&gt;
   &lt;div class="hover-position-outline"&gt;&lt;/div&gt;
@@ -397,17 +402,15 @@
 		<section class="demo-section">
 			<h2>Container query and insertion marker</h2>
 			<p class="muted">
-				The first row moves its cards; the second row clones its cards.
-				Each row has its own source query, while both can insert into
-				any highlighted board, including Board three inside a
-				same-origin iframe. This demo covers dragging into the frame.
+				Each row compares two regular drop zones with an iframe used as the
+				drop zone and an iframe containing a drop zone.
 			</p>
 			<div class="board-group">
-				<h3>Draggable cards</h3>
+				<h3>Move cards</h3>
 				<div
 					class="boards"
-					draggable-query=".drop-item[]"
-					droppable-query="$top .drop-zone[], $top #move-board-three-frame $contentDocument .drop-zone">
+					draggable-query="$top #move-board-one .drop-item[], $top #move-board-two .drop-item[], $top #move-board-three-frame $contentDocument .drop-item[], $top #move-board-four-frame $contentDocument .drop-item[]"
+					droppable-query="$top #move-board-one, $top #move-board-two, $top #move-board-three-frame $contentDocument body, $top #move-board-four-frame $contentDocument .drop-zone">
 					<div class="board-column">
 						<h3>Board one</h3>
 						<div class="drop-zone" id="move-board-one">
@@ -421,45 +424,49 @@
 						</div>
 					</div>
 					<div class="board-column">
-						<h3>Board three (iframe)</h3>
+						<h3>Board three (iframe surface)</h3>
 						<iframe
-							class="board-frame"
+							class="board-frame drop-zone-frame"
 							id="move-board-three-frame"
-							title="Move card drop board in an iframe"
-							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:10px;font:14px system-ui,sans-serif}.drop-zone{box-sizing:border-box;min-height:218px;padding:12px;border:2px dashed #bdc7d4;border-radius:8px;background:#fafbfd}.drop-zone:empty:before{content:"Drop a card here (iframe)";color:#7a8492}</style></head><body><div class="drop-zone" id="move-board-three"></div></body></html>'></iframe>
+							title="Move card to iframe surface"
+							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>html,body{box-sizing:border-box;width:100%;height:100%;margin:0;background:#fafbfd}</style></head><body></body></html>'></iframe>
+					</div>
+					<div class="board-column">
+						<h3>Board four (drop zone in iframe)</h3>
+						<iframe class="board-frame" id="move-board-four-frame" title="Move card into iframe drop zone"
+							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:10px;font:14px system-ui,sans-serif}.drop-zone{box-sizing:border-box;min-height:218px;padding:12px;border:2px dashed #bdc7d4;border-radius:8px;background:#fafbfd}.drop-item{padding:10px;border:1px solid #bdc7d4;border-radius:6px;background:#eaf2ff;cursor:grab;user-select:none}.drop-zone:empty:before{content:"Drop inside this iframe";color:#7a8492}</style></head><body><div class="drop-zone"><div class="drop-item">Move card from iframe</div></div></body></html>'></iframe>
 					</div>
 				</div>
 			</div>
 			<div class="board-group">
-				<h3>Clonable cards</h3>
+				<h3>Clone cards</h3>
 				<div
 					class="boards"
-					clonable-query=".copy-item[]"
-					droppable-query="$top .drop-zone[], $top #clone-board-three-frame $contentDocument .drop-zone">
+					clonable-query="$top #clone-board-one .copy-item[], $top #clone-board-two .copy-item[], $top #clone-board-three-frame $contentDocument .copy-item[], $top #clone-board-four-frame $contentDocument .copy-item[]"
+					droppable-query="$top #clone-board-one, $top #clone-board-two, $top #clone-board-three-frame $contentDocument body, $top #clone-board-four-frame $contentDocument .drop-zone">
 					<div class="board-column">
 						<h3>Board one</h3>
-						<div class="drop-zone" id="clone-board-one">
-							<div class="copy-item">Clone card A</div>
-						</div>
+						<div class="drop-zone" id="clone-board-one"><div class="copy-item">Clone card C</div></div>
 					</div>
 					<div class="board-column">
 						<h3>Board two</h3>
-						<div class="drop-zone" id="clone-board-two">
-							<div class="copy-item">Clone card B</div>
-						</div>
+						<div class="drop-zone" id="clone-board-two"></div>
 					</div>
 					<div class="board-column">
-						<h3>Board three (iframe)</h3>
-						<iframe
-							class="board-frame"
-							id="clone-board-three-frame"
-							title="Cloned card drop board in an iframe"
-							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:10px;font:14px system-ui,sans-serif}.drop-zone{box-sizing:border-box;min-height:218px;padding:12px;border:2px dashed #bdc7d4;border-radius:8px;background:#fafbfd}.drop-zone:empty:before{content:"Drop a card here (iframe)";color:#7a8492}</style></head><body><div class="drop-zone" id="clone-board-three"></div></body></html>'></iframe>
+						<h3>Board three (iframe surface)</h3>
+						<iframe class="board-frame drop-zone-frame" id="clone-board-three-frame" title="Clone card to iframe surface"
+							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>html,body{box-sizing:border-box;width:100%;height:100%;margin:0;background:#fafbfd}</style></head><body></body></html>'></iframe>
+					</div>
+					<div class="board-column">
+						<h3>Board four (drop zone in iframe)</h3>
+						<iframe class="board-frame" id="clone-board-four-frame" title="Clone card into iframe drop zone"
+							srcdoc='<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:10px;font:14px system-ui,sans-serif}.drop-zone{box-sizing:border-box;min-height:218px;padding:12px;border:2px dashed #bdc7d4;border-radius:8px;background:#fafbfd}.copy-item{padding:10px;border:1px solid #bdc7d4;border-radius:6px;background:#eaf2ff;cursor:grab;user-select:none}.drop-zone:empty:before{content:"Drop inside this iframe";color:#7a8492}</style></head><body><div class="drop-zone"><div class="copy-item">Clone card from iframe</div></div></body></html>'></iframe>
 					</div>
 				</div>
 			</div>
-			<pre><code>&lt;div class="boards" draggable-query=".drop-item[]" droppable-query="$top .drop-zone[]"&gt;...&lt;/div&gt;
-&lt;div class="boards" clonable-query=".copy-item[]" droppable-query="$top .drop-zone[]"&gt;...&lt;/div&gt;</code></pre>
+			<pre><code>draggable-query="$top #board-one .drop-item[], $top #frame $contentDocument .drop-item[]"
+droppable-query="$top #board-one, $top #frame $contentDocument body"
+clonable-query="$top #board-one .copy-item[], $top #frame $contentDocument .copy-item[]"</code></pre>
 		</section>
 
 		<script src="../dist/CoCreate-position.min.js"></script>
