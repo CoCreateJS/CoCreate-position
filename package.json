@@ -18,6 +18,65 @@
   "publishConfig": {
     "access": "public"
   },
+  "cocreate": {
+    "environment": [
+      "client"
+    ],
+    "interface": {
+      "schemaVersion": 1,
+      "summary": "Declarative DOM positioning, dragging, snapping, and drag-and-drop for web interfaces.",
+      "source": "src/index.js",
+      "declarative": {
+        "attributes": [
+          {
+            "name": "clonable-query"
+          },
+          {
+            "name": "draggable"
+          },
+          {
+            "name": "draggable-query"
+          },
+          {
+            "name": "droppable-query"
+          },
+          {
+            "name": "position-box"
+          },
+          {
+            "name": "position-element"
+          },
+          {
+            "name": "position-events"
+          },
+          {
+            "name": "position-query"
+          },
+          {
+            "name": "position-reference"
+          },
+          {
+            "name": "snappable-query"
+          }
+        ],
+        "selectors": [
+          "[draggable], [draggable-query], [clonable-query]",
+          "[droppable-query], [snappable-query], [position-reference]",
+          "[position-query], [position-element], [position-events], [position-box]"
+        ]
+      },
+      "api": {
+        "exports": [
+          "init",
+          "initElement",
+          "initElements",
+          "loadDraggable",
+          "loadPlacement",
+          "loadSnappable"
+        ]
+      }
+    }
+  },
   "scripts": {
     "start": "webpack --config webpack.config.js",
     "build": "webpack --mode=production --config webpack.config.js",
