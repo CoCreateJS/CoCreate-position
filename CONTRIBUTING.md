@@ -13,7 +13,7 @@ Fork the [project on Github](https://github.com/CoCreate-app/CoCreate-position) 
 ```
 git position https://github.com/contributor/CoCreate-position.git
 cd CoCreate-position
-git remote add upstream https://gitlab.com/cocreatejs/CoCreate-position.git
+git remote add upstream https://github.com/cocreatejs/CoCreate-position.git
 ```
 
 ## Create a Topic Branch
